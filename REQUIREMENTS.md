@@ -11,12 +11,12 @@
 - 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료 한다.
 
 ## Config
-- API 연계 정보등의 설정은 $HOME/.config/hunble-ai-cli/config.json 파일을 사용 함
+- API 연계 정보등의 설정은 $HOME/.config/humble-ai-cli/config.json 파일을 사용 함
 - provider 를 설정 할 수 있고 provider 에 따라 설정 항목이 다름
     - openai: model, apiKey
     - ollama: model, baseUrl
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
-- system prompt 설정은 $HOME/.config/hunble-ai-cli/system_prompt.txt 파일을 사용 함
+- system prompt 설정은 $HOME/.config/humble-ai-cli/system_prompt.txt 파일을 사용 함
 - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함
 
 ## 대화 기록

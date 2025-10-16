@@ -11,7 +11,7 @@ import (
 
 func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	home := t.TempDir()
-	configDir := filepath.Join(home, ".config", "hunble-ai-cli")
+	configDir := filepath.Join(home, ".config", "humble-ai-cli")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("failed to prepare config directory: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 		t.Fatalf("Save() error = %v", err)
 	}
 
-	cfgPath := filepath.Join(home, ".config", "hunble-ai-cli", "config.json")
+	cfgPath := filepath.Join(home, ".config", "humble-ai-cli", "config.json")
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("failed to read persisted config: %v", err)

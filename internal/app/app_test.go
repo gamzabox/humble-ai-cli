@@ -100,7 +100,7 @@ func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 		},
 	}
 	factory := newStubFactory()
-	input := strings.NewReader("안녕?\n/exti\n")
+	input := strings.NewReader("안녕?\n/exit\n")
 	var output bytes.Buffer
 
 	opts := app.Options{
@@ -138,7 +138,7 @@ func TestAppDisplaysHelpCommand(t *testing.T) {
 		},
 	}
 	factory := newStubFactory()
-	input := strings.NewReader("/help\n/exti\n")
+	input := strings.NewReader("/help\n/exit\n")
 	var output bytes.Buffer
 
 	opts := app.Options{
@@ -161,7 +161,7 @@ func TestAppDisplaysHelpCommand(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, cmd := range []string{"/help", "/set-model", "/exti"} {
+	for _, cmd := range []string{"/help", "/set-model", "/exit"} {
 		if !strings.Contains(got, cmd) {
 			t.Fatalf("expected help output to include %s, got:\n%s", cmd, got)
 		}
@@ -190,7 +190,7 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	factory := newStubFactory()
 	factory.Register("stub-model", provider)
 
-	input := strings.NewReader("Hi there\n/exti\n")
+	input := strings.NewReader("Hi there\n/exit\n")
 	var output bytes.Buffer
 
 	now := time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)
@@ -254,7 +254,7 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 
 func TestAppSetModelUpdatesConfig(t *testing.T) {
 	home := t.TempDir()
-	configDir := filepath.Join(home, ".config", "hunble-ai-cli")
+	configDir := filepath.Join(home, ".config", "humble-ai-cli")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("failed to prepare config dir: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 	factory.Register("model-a", &recordingProvider{})
 	factory.Register("model-b", &recordingProvider{})
 
-	input := strings.NewReader("/set-model\n2\n/exti\n")
+	input := strings.NewReader("/set-model\n2\n/exit\n")
 	var output bytes.Buffer
 
 	opts := app.Options{

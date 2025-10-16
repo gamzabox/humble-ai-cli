@@ -55,3 +55,5 @@ myapp.exe
 # 운영체제 파일 (OS Files)
 .DS_Store # macOS
 Thumbs.db # Windows
+
+chat_history/

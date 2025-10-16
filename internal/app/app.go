@@ -264,7 +264,7 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 		a.printHelp()
 	case "/set-model":
 		return false, a.changeActiveModel(ctx)
-	case "/exti":
+	case "/exit":
 		return true, nil
 	default:
 		fmt.Fprintf(a.output, "Unknown command: %s\n", line)
@@ -276,7 +276,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.output, "Available commands:")
 	fmt.Fprintln(a.output, "  /help       Show this help message.")
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
-	fmt.Fprintln(a.output, "  /exti       Exit the application.")
+	fmt.Fprintln(a.output, "  /exit       Exit the application.")
 }
 
 func (a *App) changeActiveModel(ctx context.Context) error {
@@ -336,7 +336,7 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 }
 
 func (a *App) configFilePath() string {
-	return filepath.Join(a.homeDir, ".config", "hunble-ai-cli", "config.json")
+	return filepath.Join(a.homeDir, ".config", "humble-ai-cli", "config.json")
 }
 
 func (a *App) handleUserMessage(ctx context.Context, content string) error {
