@@ -1,0 +1,57 @@
+# 바이너리 및 실행 파일 (Binaries and Executables)
+# Go 빌드 시 생성되는 실행 파일 (일반적으로 프로젝트 루트에 생성됨)
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+
+# 빌드 결과물 (Build Results)
+# go build 시 생성되는 모든 바이너리
+# Windows, Linux, macOS 등에서 빌드 시 생성되는 파일들
+# 예: 프로젝트 이름으로 생성되는 실행 파일
+# /project-name 또는 /project-name.exe 등
+# 프로젝트 이름이 myapp이라면:
+myapp
+myapp.exe 
+# 모든 OS의 바이너리 파일을 무시하려면
+/bin/ 
+/pkg/
+/target/
+
+# 의존성 (Dependencies)
+# Go 모듈 캐시 파일
+/vendor/ 
+# 만약 프로젝트가 Go Modules를 사용하고 있다면(Go 1.11 이후 표준) 
+# vendor 디렉토리를 무시하는 것이 일반적입니다.
+
+# 테스트 파일 및 캐시 (Test Files and Cache)
+# go test -c로 생성되는 테스트 실행 파일
+*test.exe
+*test.
+# 테스트 및 빌드 캐시
+/pkg/mod/cache/ 
+.test
+.out
+
+# IDE 및 에디터 관련 파일 (IDE and Editor Files)
+# 주로 VS Code, IntelliJ/GoLand, Vim/Emacs 등에서 생성됨
+
+# VS Code
+.vscode/
+
+# JetBrains IDEs (GoLand, IntelliJ)
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Vim/Emacs 스왑 및 백업 파일
+*~
+*.swp
+.netrwhist
+
+# 운영체제 파일 (OS Files)
+.DS_Store # macOS
+Thumbs.db # Windows
