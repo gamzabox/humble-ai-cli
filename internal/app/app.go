@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"gamzabox.com/humble-ai-cli/internal/config"
 	"gamzabox.com/humble-ai-cli/internal/llm"
@@ -163,7 +164,7 @@ func New(opts Options) (*App, error) {
 }
 
 func loadSystemPrompt(home string) (string, error) {
-	path := filepath.Join(home, ".config", "hunble-ai-cli", "system_prompt.txt")
+	path := filepath.Join(home, ".config", "humble-ai-cli", "system_prompt.txt")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -544,29 +545,24 @@ func (a *App) shouldExit() bool {
 }
 
 func sanitizeTitle(input string) string {
-	if strings.TrimSpace(input) == "" {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
 		return "session"
 	}
-	runes := []rune(strings.TrimSpace(input))
-	if len(runes) > 10 {
-		runes = runes[:10]
+
+	const maxLen = 10
+	count := 0
+	var builder strings.Builder
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			count++
+			if count >= maxLen {
+				break
+			}
+		}
 	}
-	builder := strings.Builder{}
-	for _, r := range runes {
-		if r == '/' || r == '\\' || r == ':' {
-			builder.WriteRune('_')
-			continue
-		}
-		if strings.ContainsRune("\n\r\t", r) {
-			builder.WriteRune('_')
-			continue
-		}
-		if r == ' ' {
-			builder.WriteRune('_')
-			continue
-		}
-		builder.WriteRune(r)
-	}
+
 	title := builder.String()
 	if title == "" {
 		return "session"

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -190,7 +191,7 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	factory := newStubFactory()
 	factory.Register("stub-model", provider)
 
-	input := strings.NewReader("Hi there\n/exit\n")
+	input := strings.NewReader("Hello?! there...\n/exit\n")
 	var output bytes.Buffer
 
 	now := time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)
@@ -231,6 +232,12 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 	if len(historyFiles) != 1 {
 		t.Fatalf("expected 1 history file, got %d", len(historyFiles))
+	}
+
+	base := filepath.Base(historyFiles[0])
+	expectedPattern := regexp.MustCompile(`^\d{8}_\d{6}_[A-Za-z0-9]+\.json$`)
+	if !expectedPattern.MatchString(base) {
+		t.Fatalf("history filename %q does not match expected pattern", base)
 	}
 
 	data, err := os.ReadFile(historyFiles[0])
