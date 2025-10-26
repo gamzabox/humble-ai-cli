@@ -32,6 +32,7 @@
     - /help: 커맨드 리스트와 설명을 보여줌
     - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
+    - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 function 이름과 description 을 출력한다.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
 
 ## MCP Server 호출 기능
@@ -45,4 +46,3 @@
 - 개발 언어: go 1.25.2
 - MCP 관련 기능은 github.com/modelcontextprotocol/go-sdk 의 mcp 패키지를 이용해 MCP Client 기능을 구현하고 패키지 사용 가이드는 다음 URL 을 참고 할 것
     - https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp
-

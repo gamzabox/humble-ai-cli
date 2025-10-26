@@ -77,19 +77,12 @@ func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 	go func() {
 		defer close(stream)
 
-		var (
-			messages     = buildOpenAIMessages(req)
-			tools        = buildOpenAITools(req.MCPServers)
-			thinkingSent bool
-			servers      = make(map[string]string, len(req.MCPServers))
-		)
-
-		for _, tool := range req.MCPServers {
-			servers[tool.Name] = tool.Description
-		}
+		messages := buildOpenAIMessages(req)
+		openAITools, definitions := buildOpenAITools(req.Tools)
+		thinkingSent := false
 
 		for {
-			result, err := p.streamOnce(ctx, req.Model, messages, tools, stream, &thinkingSent)
+			result, err := p.streamOnce(ctx, req.Model, messages, openAITools, stream, &thinkingSent)
 			if err != nil {
 				if err != context.Canceled {
 					stream <- StreamChunk{Type: ChunkError, Err: err}
@@ -105,7 +98,7 @@ func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 			}
 
 			for _, call := range result.toolCalls {
-				toolMessage, err := p.awaitToolResult(ctx, stream, servers, call)
+				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
 				if err != nil {
 					if err != context.Canceled {
 						stream <- StreamChunk{Type: ChunkError, Err: err}
@@ -216,7 +209,12 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
 
-func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, servers map[string]string, call toolCallRequest) (openAIMessage, error) {
+func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) (openAIMessage, error) {
+	definition, ok := defs[call.Call.Function.Name]
+	if !ok {
+		return openAIMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+	}
+
 	args, err := call.arguments()
 	if err != nil {
 		return openAIMessage{}, err
@@ -224,10 +222,10 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 
 	resultCh := make(chan ToolResult, 1)
 	tc := &ToolCall{
-		Server:      args.Server,
-		Method:      args.Method,
-		Description: servers[args.Server],
-		Arguments:   args.Arguments,
+		Server:      definition.Server,
+		Method:      definition.Method,
+		Description: definition.Description,
+		Arguments:   args,
 		Respond: func(ctx context.Context, result ToolResult) error {
 			select {
 			case <-ctx.Done():
@@ -256,7 +254,7 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 		Role:       "tool",
 		Content:    content,
 		ToolCallID: call.Call.ID,
-		Name:       call.Call.Function.Name,
+		Name:       definition.Name,
 	}
 	return toolMessage, nil
 }
@@ -332,53 +330,53 @@ func buildOpenAIMessages(req ChatRequest) []openAIMessage {
 	return messages
 }
 
-func buildOpenAITools(servers []MCPServerTool) []openAITool {
-	if len(servers) == 0 {
-		return nil
+func buildOpenAITools(defs []ToolDefinition) ([]openAITool, map[string]ToolDefinition) {
+	if len(defs) == 0 {
+		return nil, nil
 	}
 
-	var descBuilder strings.Builder
-	descBuilder.WriteString("Invoke a Model Context Protocol server.\nAvailable servers:\n")
-	for _, srv := range servers {
-		descBuilder.WriteString(" - ")
-		descBuilder.WriteString(srv.Name)
-		if d := strings.TrimSpace(srv.Description); d != "" {
-			descBuilder.WriteString(": ")
-			descBuilder.WriteString(d)
+	out := make([]openAITool, 0, len(defs))
+	index := make(map[string]ToolDefinition, len(defs))
+
+	for _, def := range defs {
+		parameters := cloneAnyMap(def.Parameters)
+		if parameters == nil {
+			parameters = defaultToolSchema()
 		}
-		descBuilder.WriteString("\n")
-	}
 
-	parameters := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"server": map[string]any{
-				"type":        "string",
-				"description": "MCP server name to call.",
-			},
-			"method": map[string]any{
-				"type":        "string",
-				"description": "Method on the MCP server to invoke.",
-			},
-			"arguments": map[string]any{
-				"type":                 "object",
-				"description":          "Arbitrary JSON arguments passed to the MCP server.",
-				"additionalProperties": true,
-			},
-		},
-		"required":             []string{"server", "method"},
-		"additionalProperties": false,
-	}
-
-	return []openAITool{
-		{
+		out = append(out, openAITool{
 			Type: "function",
 			Function: openAIToolSignature{
-				Name:        "call_mcp",
-				Description: strings.TrimSpace(descBuilder.String()),
+				Name:        def.Name,
+				Description: def.Description,
 				Parameters:  parameters,
 			},
-		},
+		})
+		index[def.Name] = def
+	}
+	return out, index
+}
+
+func cloneAnyMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil
+	}
+	var dst map[string]any
+	if err := json.Unmarshal(data, &dst); err != nil {
+		return nil
+	}
+	return dst
+}
+
+func defaultToolSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": true,
 	}
 }
 
@@ -441,23 +439,14 @@ type toolCallRequest struct {
 	Call openAIToolCall
 }
 
-type toolCallArgs struct {
-	Server    string         `json:"server"`
-	Method    string         `json:"method"`
-	Arguments map[string]any `json:"arguments"`
-}
-
-func (r toolCallRequest) arguments() (toolCallArgs, error) {
-	var args toolCallArgs
+func (r toolCallRequest) arguments() (map[string]any, error) {
+	var args map[string]any
 	raw := strings.TrimSpace(r.Call.Function.Arguments)
 	if raw == "" {
 		raw = "{}"
 	}
 	if err := json.Unmarshal([]byte(raw), &args); err != nil {
-		return toolCallArgs{}, fmt.Errorf("parse tool arguments: %w", err)
-	}
-	if args.Arguments == nil {
-		args.Arguments = map[string]any{}
+		return nil, fmt.Errorf("parse tool arguments: %w", err)
 	}
 	return args, nil
 }

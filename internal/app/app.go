@@ -41,11 +41,15 @@ type ProviderFactory interface {
 // MCPServer describes a configured MCP server surfaced to the LLM.
 type MCPServer = mcpkg.Server
 
+// MCPFunction describes a tool exposed by an MCP server.
+type MCPFunction = mcpkg.Function
+
 // MCPExecutor resolves server metadata and executes MCP tool calls.
 type MCPExecutor interface {
 	EnabledServers() []MCPServer
 	Describe(server string) (MCPServer, bool)
 	Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error)
+	Tools(ctx context.Context, server string) ([]MCPFunction, error)
 }
 
 // Options configures App creation.
@@ -76,6 +80,8 @@ type App struct {
 	systemPrompt string
 	mcp          MCPExecutor
 	mcpServers   map[string]MCPServer
+	mcpFunctions map[string][]MCPFunction
+	mcpMu        sync.RWMutex
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
@@ -166,11 +172,6 @@ func New(opts Options) (*App, error) {
 		cfg = config.Config{}
 	}
 
-	systemPrompt, err := ensureSystemPrompt(home, servers)
-	if err != nil {
-		return nil, err
-	}
-
 	app := &App{
 		store:        opts.Store,
 		factory:      opts.Factory,
@@ -180,19 +181,28 @@ func New(opts Options) (*App, error) {
 		historyRoot:  historyRoot,
 		homeDir:      home,
 		clock:        clock,
-		systemPrompt: systemPrompt,
+		systemPrompt: "",
 		mcp:          mcpExec,
 		mcpServers:   serverMap,
+		mcpFunctions: make(map[string][]MCPFunction),
 		cfg:          cfg,
 		mode:         modeInput,
 	}
 
 	app.setupSignals(opts.Interrupts)
 
+	if err := app.loadMCPFunctions(context.Background()); err != nil {
+		return nil, err
+	}
+
+	if err := app.initializeSystemPrompt(); err != nil {
+		return nil, err
+	}
+
 	return app, nil
 }
 
-func ensureSystemPrompt(home string, servers []MCPServer) (string, error) {
+func ensureSystemPrompt(home string, servers []MCPServer, functions map[string][]MCPFunction) (string, error) {
 	path := filepath.Join(home, ".humble-ai-cli", "system_prompt.txt")
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -206,14 +216,70 @@ func ensureSystemPrompt(home string, servers []MCPServer) (string, error) {
 		return "", fmt.Errorf("create system prompt dir: %w", err)
 	}
 
-	content := buildDefaultSystemPrompt(servers)
+	content := buildDefaultSystemPrompt(servers, functions)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write default system prompt: %w", err)
 	}
 	return strings.TrimSpace(content), nil
 }
 
-func buildDefaultSystemPrompt(servers []MCPServer) string {
+func (a *App) initializeSystemPrompt() error {
+	servers := a.snapshotServers()
+	functions := a.snapshotFunctions()
+	prompt, err := ensureSystemPrompt(a.homeDir, servers, functions)
+	if err != nil {
+		return err
+	}
+	a.systemPrompt = prompt
+	return nil
+}
+
+func (a *App) loadMCPFunctions(ctx context.Context) error {
+	if a.mcp == nil {
+		return nil
+	}
+
+	functions := make(map[string][]MCPFunction, len(a.mcpServers))
+	a.mcpMu.RLock()
+	for key, funcs := range a.mcpFunctions {
+		functions[key] = cloneMCPFunctions(funcs)
+	}
+	a.mcpMu.RUnlock()
+	for _, srv := range a.mcpServers {
+		tools, err := a.mcp.Tools(ctx, srv.Name)
+		if err != nil {
+			fmt.Fprintf(a.errOutput, "Failed to list tools for %s: %v\n", srv.Name, err)
+			continue
+		}
+		functions[srv.Name] = cloneMCPFunctions(tools)
+	}
+
+	a.mcpMu.Lock()
+	a.mcpFunctions = functions
+	a.mcpMu.Unlock()
+	return nil
+}
+
+func (a *App) snapshotServers() []MCPServer {
+	names := a.sortedMCPServerNames()
+	servers := make([]MCPServer, 0, len(names))
+	for _, name := range names {
+		servers = append(servers, a.mcpServers[name])
+	}
+	return servers
+}
+
+func (a *App) snapshotFunctions() map[string][]MCPFunction {
+	a.mcpMu.RLock()
+	defer a.mcpMu.RUnlock()
+	out := make(map[string][]MCPFunction, len(a.mcpFunctions))
+	for key, funcs := range a.mcpFunctions {
+		out[key] = cloneMCPFunctions(funcs)
+	}
+	return out
+}
+
+func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFunction) string {
 	var builder strings.Builder
 
 	builder.WriteString("You are the humble-ai command line assistant. MCP server tooling is available.\n")
@@ -221,7 +287,7 @@ func buildDefaultSystemPrompt(servers []MCPServer) string {
 	builder.WriteString("Always wait for tool results before finalizing the response.\n")
 
 	if len(servers) > 0 {
-		builder.WriteString("\nAvailable MCP servers:\n")
+		builder.WriteString("\nAvailable MCP servers and functions:\n")
 		for _, srv := range servers {
 			builder.WriteString("  - ")
 			builder.WriteString(srv.Name)
@@ -231,6 +297,25 @@ func buildDefaultSystemPrompt(servers []MCPServer) string {
 				builder.WriteString(desc)
 			}
 			builder.WriteString("\n")
+
+			tools := append([]MCPFunction(nil), functions[srv.Name]...)
+			sort.Slice(tools, func(i, j int) bool {
+				return tools[i].Name < tools[j].Name
+			})
+			if len(tools) == 0 {
+				builder.WriteString("    (no functions reported)\n")
+				continue
+			}
+			for _, fn := range tools {
+				builder.WriteString("    * ")
+				builder.WriteString(fn.Name)
+				fnDesc := strings.TrimSpace(fn.Description)
+				if fnDesc != "" {
+					builder.WriteString(": ")
+					builder.WriteString(fnDesc)
+				}
+				builder.WriteString("\n")
+			}
 		}
 	}
 
@@ -330,6 +415,8 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 		a.startNewSession()
 	case "/set-model":
 		return false, a.changeActiveModel(ctx)
+	case "/mcp":
+		return false, a.printMCPServers(ctx)
 	case "/exit":
 		return true, nil
 	default:
@@ -343,6 +430,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.output, "  /help       Show this help message.")
 	fmt.Fprintln(a.output, "  /new        Start a fresh session.")
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
+	fmt.Fprintln(a.output, "  /mcp        List enabled MCP servers and their functions.")
 	fmt.Fprintln(a.output, "  /exit       Exit the application.")
 }
 
@@ -456,7 +544,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		Messages:     requestMessages,
 		SystemPrompt: a.systemPrompt,
 		Stream:       true,
-		MCPServers:   a.availableMCPTooling(),
+		Tools:        a.availableToolDefinitions(),
 	}
 
 	reqCtx, cancel := context.WithCancel(ctx)
@@ -608,26 +696,100 @@ func (a *App) createHistoryFile(model string, when time.Time) (string, error) {
 	return path, nil
 }
 
-func (a *App) availableMCPTooling() []llm.MCPServerTool {
-	if len(a.mcpServers) == 0 {
+func (a *App) printMCPServers(ctx context.Context) error {
+	if a.mcp == nil {
+		fmt.Fprintln(a.output, "MCP integration is not configured.")
 		return nil
 	}
 
-	names := make([]string, 0, len(a.mcpServers))
-	for name := range a.mcpServers {
-		names = append(names, name)
+	if err := a.loadMCPFunctions(ctx); err != nil {
+		return err
 	}
-	sort.Strings(names)
 
-	tools := make([]llm.MCPServerTool, 0, len(names))
+	names := a.sortedMCPServerNames()
+	if len(names) == 0 {
+		fmt.Fprintln(a.output, "No MCP servers are currently enabled.")
+		return nil
+	}
+
+	fmt.Fprintln(a.output, "Enabled MCP servers:")
+	a.mcpMu.RLock()
 	for _, name := range names {
 		srv := a.mcpServers[name]
-		tools = append(tools, llm.MCPServerTool{
-			Name:        srv.Name,
-			Description: srv.Description,
+		desc := strings.TrimSpace(srv.Description)
+		if desc == "" {
+			desc = "No description provided."
+		}
+		fmt.Fprintf(a.output, "%s - %s\n", srv.Name, desc)
+
+		tools := append([]MCPFunction(nil), a.mcpFunctions[srv.Name]...)
+		sort.Slice(tools, func(i, j int) bool {
+			return tools[i].Name < tools[j].Name
 		})
+		if len(tools) == 0 {
+			fmt.Fprintln(a.output, "  (no functions reported)")
+			continue
+		}
+
+		for _, tool := range tools {
+			desc := strings.TrimSpace(tool.Description)
+			if desc == "" {
+				desc = "No description provided."
+			}
+			fmt.Fprintf(a.output, "  - %s: %s\n", tool.Name, desc)
+		}
 	}
-	return tools
+	a.mcpMu.RUnlock()
+	return nil
+}
+
+func (a *App) availableToolDefinitions() []llm.ToolDefinition {
+	names := a.sortedMCPServerNames()
+	if len(names) == 0 {
+		return nil
+	}
+
+	a.mcpMu.RLock()
+	defer a.mcpMu.RUnlock()
+	defs := make([]llm.ToolDefinition, 0)
+	for _, name := range names {
+		srv := a.mcpServers[name]
+		serverDesc := strings.TrimSpace(srv.Description)
+		functions := append([]MCPFunction(nil), a.mcpFunctions[name]...)
+		sort.Slice(functions, func(i, j int) bool {
+			return functions[i].Name < functions[j].Name
+		})
+		for _, fn := range functions {
+			desc := strings.TrimSpace(fn.Description)
+			if desc == "" {
+				desc = "No description provided."
+			}
+			if serverDesc != "" {
+				desc = fmt.Sprintf("%s — %s", serverDesc, desc)
+			}
+			desc = fmt.Sprintf("%s (server: %s)", desc, srv.Name)
+			toolName := fmt.Sprintf("%s__%s", srv.Name, fn.Name)
+			defs = append(defs, llm.ToolDefinition{
+				Name:        toolName,
+				Description: desc,
+				Server:      srv.Name,
+				Method:      fn.Name,
+				Parameters:  cloneParameters(fn.Parameters),
+			})
+		}
+	}
+	return defs
+}
+
+func (a *App) functionDescription(server, method string) string {
+	a.mcpMu.RLock()
+	defer a.mcpMu.RUnlock()
+	for _, fn := range a.mcpFunctions[server] {
+		if fn.Name == method {
+			return fn.Description
+		}
+	}
+	return ""
 }
 
 func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
@@ -636,6 +798,11 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 	}
 
 	description := strings.TrimSpace(call.Description)
+	if description == "" {
+		if fnDesc := strings.TrimSpace(a.functionDescription(call.Server, call.Method)); fnDesc != "" {
+			description = fnDesc
+		}
+	}
 	if description == "" {
 		if srv, ok := a.mcpServers[call.Server]; ok {
 			description = strings.TrimSpace(srv.Description)
@@ -767,4 +934,46 @@ func jsonMarshal(v any) ([]byte, error) {
 		return nil, fmt.Errorf("marshal history: %w", err)
 	}
 	return data, nil
+}
+
+func (a *App) sortedMCPServerNames() []string {
+	if len(a.mcpServers) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(a.mcpServers))
+	for name := range a.mcpServers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func cloneParameters(params map[string]any) map[string]any {
+	if params == nil {
+		return nil
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func cloneMCPFunctions(funcs []MCPFunction) []MCPFunction {
+	if len(funcs) == 0 {
+		return nil
+	}
+	out := make([]MCPFunction, len(funcs))
+	for i, fn := range funcs {
+		out[i] = MCPFunction{
+			Name:        fn.Name,
+			Description: fn.Description,
+			Parameters:  cloneParameters(fn.Parameters),
+		}
+	}
+	return out
 }

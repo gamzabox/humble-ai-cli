@@ -12,11 +12,11 @@ type Message struct {
 
 // ChatRequest describes a LLM chat completion request.
 type ChatRequest struct {
-	Model        string          `json:"model"`
-	Messages     []Message       `json:"messages"`
-	SystemPrompt string          `json:"systemPrompt,omitempty"`
-	Stream       bool            `json:"stream"`
-	MCPServers   []MCPServerTool `json:"mcpServers,omitempty"`
+	Model        string           `json:"model"`
+	Messages     []Message        `json:"messages"`
+	SystemPrompt string           `json:"systemPrompt,omitempty"`
+	Stream       bool             `json:"stream"`
+	Tools        []ToolDefinition `json:"tools,omitempty"`
 }
 
 // ChunkType is the type of a streaming response chunk.
@@ -53,10 +53,13 @@ type ToolResult struct {
 	IsError bool
 }
 
-// MCPServerTool exposes metadata for MCP tool wiring.
-type MCPServerTool struct {
+// ToolDefinition describes a single callable tool provided to the LLM.
+type ToolDefinition struct {
 	Name        string
 	Description string
+	Server      string
+	Method      string
+	Parameters  map[string]any
 }
 
 // StreamChunk represents a single streamed chunk.

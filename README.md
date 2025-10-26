@@ -11,6 +11,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/help` – show available commands.
   - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
+  - `/mcp` – display enabled MCP servers and the functions they expose.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
 ## Prerequisites

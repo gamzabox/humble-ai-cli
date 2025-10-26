@@ -169,8 +169,24 @@ type stubMCP struct {
 	calls         []recordedMCPCall
 	description   app.MCPServer
 	servers       []app.MCPServer
+	toolset       map[string][]app.MCPFunction
 	response      llm.ToolResult
 	responseError error
+}
+
+func cloneTestParams(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 func (s *stubMCP) Describe(server string) (app.MCPServer, bool) {
@@ -213,6 +229,21 @@ func (s *stubMCP) Calls() []recordedMCPCall {
 	out := make([]recordedMCPCall, len(s.calls))
 	copy(out, s.calls)
 	return out
+}
+
+func (s *stubMCP) Tools(ctx context.Context, server string) ([]app.MCPFunction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tools := s.toolset[server]
+	out := make([]app.MCPFunction, len(tools))
+	for i, fn := range tools {
+		out[i] = app.MCPFunction{
+			Name:        fn.Name,
+			Description: fn.Description,
+			Parameters:  cloneTestParams(fn.Parameters),
+		}
+	}
+	return out, nil
 }
 
 func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
@@ -586,6 +617,11 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 		servers: []app.MCPServer{
 			{Name: "calculator", Description: "Performs simple calculations"},
 		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add numbers."},
+			},
+		},
 	}
 
 	input := strings.NewReader("Hi\n/exit\n")
@@ -621,6 +657,9 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	content := string(bytes.TrimSpace(data))
 	if !strings.Contains(content, "MCP server tooling") {
 		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
+	}
+	if !strings.Contains(content, "* add") {
+		t.Fatalf("expected default prompt to list MCP functions, got:\n%s", content)
 	}
 
 	// Running once should not overwrite existing content.
@@ -706,6 +745,11 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 		servers: []app.MCPServer{
 			{Name: "calculator", Description: "Adds numbers via MCP."},
 		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add two numbers."},
+			},
+		},
 		response: llm.ToolResult{
 			Content: "5",
 		},
@@ -762,6 +806,63 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 	}
 	if !strings.Contains(got, "Final answer: 5") {
 		t.Fatalf("expected final answer to be printed, got:\n%s", got)
+	}
+}
+
+func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
+	store := &stubStore{}
+	factory := newStubFactory()
+	input := strings.NewReader("/mcp\n/exit\n")
+	var output bytes.Buffer
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Performs math operations"},
+			{Name: "docs", Description: "Finds documentation snippets"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add two numbers."},
+				{Name: "subtract", Description: "Subtract second number from first."},
+			},
+			"docs": {
+				{Name: "search", Description: "Search documentation by keyword."},
+			},
+		},
+	}
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: t.TempDir(),
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	got := output.String()
+	for _, phrase := range []string{
+		"Enabled MCP servers",
+		"calculator - Performs math operations",
+		"  - add: Add two numbers.",
+		"  - subtract: Subtract second number from first.",
+		"docs - Finds documentation snippets",
+		"  - search: Search documentation by keyword.",
+	} {
+		if !strings.Contains(got, phrase) {
+			t.Fatalf("expected output to contain %q, got:\n%s", phrase, got)
+		}
 	}
 }
 

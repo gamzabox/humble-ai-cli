@@ -22,6 +22,13 @@ type Server struct {
 	Description string
 }
 
+// Function describes a tool exposed by an MCP server.
+type Function struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
 type serverConfig struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
@@ -114,6 +121,108 @@ func (m *Manager) Call(ctx context.Context, server, method string, arguments map
 		return llm.ToolResult{}, fmt.Errorf("call tool %q on server %q: %w", method, server, err)
 	}
 	return convertResult(result)
+}
+
+// Tools lists functions provided by the specified server.
+func (m *Manager) Tools(ctx context.Context, server string) ([]Function, error) {
+	m.mu.Lock()
+	cfg, ok := m.servers[server]
+	m.mu.Unlock()
+	if !ok || !cfg.Enabled {
+		return nil, fmt.Errorf("unknown MCP server %q", server)
+	}
+	if strings.TrimSpace(cfg.Command) == "" {
+		return nil, fmt.Errorf("mcp server %q has no command configured", server)
+	}
+
+	client := sdk.NewClient(&sdk.Implementation{
+		Name:    "humble-ai-cli",
+		Version: "0.1.0",
+	}, nil)
+
+	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
+	transport := &sdk.CommandTransport{Command: cmd}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect MCP server %q: %w", server, err)
+	}
+	defer session.Close()
+
+	params := &sdk.ListToolsParams{}
+	var out []Function
+	for {
+		res, err := session.ListTools(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("list tools on server %q: %w", server, err)
+		}
+		for _, tool := range res.Tools {
+			if tool == nil {
+				continue
+			}
+			out = append(out, Function{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  normalizeSchema(tool.InputSchema),
+			})
+		}
+		if res.NextCursor == "" {
+			break
+		}
+		params = &sdk.ListToolsParams{Cursor: res.NextCursor}
+	}
+	return out, nil
+}
+
+func normalizeSchema(input any) map[string]any {
+	if input == nil {
+		return defaultSchema()
+	}
+
+	switch v := input.(type) {
+	case map[string]any:
+		return cloneMap(v)
+	case json.RawMessage:
+		if len(v) == 0 {
+			return defaultSchema()
+		}
+		var out map[string]any
+		if err := json.Unmarshal(v, &out); err == nil {
+			return out
+		}
+	default:
+		data, err := json.Marshal(v)
+		if err == nil {
+			var out map[string]any
+			if err := json.Unmarshal(data, &out); err == nil {
+				return out
+			}
+		}
+	}
+
+	return defaultSchema()
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func defaultSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": true,
+	}
 }
 
 func loadServerConfigs(home string) (map[string]serverConfig, error) {
