@@ -4,11 +4,12 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 
 ## Features
 - Interactive REPL with streaming responses and “Thinking…” indicators.
-- Remembers conversation context per session and persists transcripts to `chat_history/`.
-- Works with either OpenAI or Ollama providers as defined in `~/.config/humble-ai-cli/config.json`.
-- Supports configurable system prompts stored at `~/.config/humble-ai-cli/system_prompt.txt`.
+- Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
+- Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
+- Supports configurable system prompts stored at `~/.humble-ai-cli/system_prompt.txt`.
 - Built-in slash commands:
   - `/help` – show available commands.
+  - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
@@ -18,13 +19,13 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 - Network access to your chosen provider (OpenAI API or local/remote Ollama).
 
 ## Configuration
-Create the config directory if it does not exist:
+Create the configuration directory if it does not exist:
 
 ```bash
-mkdir -p ~/.config/humble-ai-cli
+mkdir -p ~/.humble-ai-cli/sessions
 ```
 
-Add provider and model details to `~/.config/humble-ai-cli/config.json`, for example:
+Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 
 ```json
 {
@@ -45,7 +46,7 @@ Add provider and model details to `~/.config/humble-ai-cli/config.json`, for exa
 }
 ```
 
-Optional: provide a system prompt via `~/.config/humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
+Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 
 ## Running the CLI
 From the project root:
@@ -70,4 +71,4 @@ Produce a standalone binary:
 go build -o humble-ai-cli ./...
 ```
 
-The resulting binary can be placed anywhere on your `PATH`. When run, it will continue to use the configuration files under `~/.config/humble-ai-cli`.
+The resulting binary can be placed anywhere on your `PATH`. When run, it will continue to use the configuration files under `~/.humble-ai-cli`.

@@ -66,7 +66,7 @@ func NewFileStore(home string) *FileStore {
 }
 
 func (f *FileStore) configPath() string {
-	return filepath.Join(f.home, ".config", "humble-ai-cli", "config.json")
+	return filepath.Join(f.home, ".humble-ai-cli", "config.json")
 }
 
 // Load reads configuration from disk.

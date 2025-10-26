@@ -124,11 +124,7 @@ func New(opts Options) (*App, error) {
 
 	historyRoot := opts.HistoryRootDir
 	if historyRoot == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("determine working directory: %w", err)
-		}
-		historyRoot = wd
+		historyRoot = filepath.Join(home, ".humble-ai-cli", "sessions")
 	}
 
 	cfg, err := opts.Store.Load()
@@ -164,7 +160,7 @@ func New(opts Options) (*App, error) {
 }
 
 func loadSystemPrompt(home string) (string, error) {
-	path := filepath.Join(home, ".config", "humble-ai-cli", "system_prompt.txt")
+	path := filepath.Join(home, ".humble-ai-cli", "system_prompt.txt")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
@@ -263,6 +259,8 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 	switch line {
 	case "/help":
 		a.printHelp()
+	case "/new":
+		a.startNewSession()
 	case "/set-model":
 		return false, a.changeActiveModel(ctx)
 	case "/exit":
@@ -276,6 +274,7 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 func (a *App) printHelp() {
 	fmt.Fprintln(a.output, "Available commands:")
 	fmt.Fprintln(a.output, "  /help       Show this help message.")
+	fmt.Fprintln(a.output, "  /new        Start a fresh session.")
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
 	fmt.Fprintln(a.output, "  /exit       Exit the application.")
 }
@@ -337,7 +336,19 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 }
 
 func (a *App) configFilePath() string {
-	return filepath.Join(a.homeDir, ".config", "humble-ai-cli", "config.json")
+	return filepath.Join(a.homeDir, ".humble-ai-cli", "config.json")
+}
+
+func (a *App) startNewSession() {
+	a.historyMu.Lock()
+	a.historyPath = ""
+	a.sessionStart = time.Time{}
+	a.firstUserInput = ""
+	a.historyMu.Unlock()
+
+	a.messages = nil
+
+	fmt.Fprintln(a.output, "Started a new session.")
 }
 
 func (a *App) handleUserMessage(ctx context.Context, content string) error {
@@ -477,7 +488,7 @@ func (a *App) persistHistory(model string, when time.Time) error {
 }
 
 func (a *App) createHistoryFile(model string, when time.Time) (string, error) {
-	dir := filepath.Join(a.historyRoot, "chat_history")
+	dir := a.historyRoot
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create history dir: %w", err)
 	}

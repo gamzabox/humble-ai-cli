@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gamzabox.com/humble-ai-cli/internal/app"
 	"gamzabox.com/humble-ai-cli/internal/config"
@@ -26,7 +27,7 @@ func main() {
 		Input:          os.Stdin,
 		Output:         os.Stdout,
 		ErrorOutput:    os.Stderr,
-		HistoryRootDir: ".",
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
 		HomeDir:        home,
 	}
 

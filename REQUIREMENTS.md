@@ -11,25 +11,26 @@
 - 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료 한다.
 
 ## Config
-- API 연계 정보등의 설정은 $HOME/.config/humble-ai-cli/config.json 파일을 사용 함
+- API 연계 정보등의 설정은 $HOME/.humble-ai-cli/config.json 파일을 사용 함
 - provider 를 설정 할 수 있고 provider 에 따라 설정 항목이 다름
     - openai: model, apiKey
     - ollama: model, baseUrl
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
-- system prompt 설정은 $HOME/.config/humble-ai-cli/system_prompt.txt 파일을 사용 함
+- system prompt 설정은 $HOME/.humble-ai-cli/system_prompt.txt 파일을 사용 함
 - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함
 
 ## 대화 기록
-- 대화 세션은 실행파일 위치에 chat_history 디렉토리를 생성하고 여기에 각각의 json 파일로 저장 한다.
+- 대화 세션은 $HOME/.humble-ai-cli/sessions/ 디렉토리에 각각의 json 파일로 저장 한다.
 - 파일명은 날짜와시간으로 시작하고 대화 시작 문구(최대 10글자) 를 연결한 다음 확장자 .json 를 설정 한다.
     - 예: 20251016_162030_대화_제목_이다.json
+- /new 커맨드로 새로운 세션을 시작하면 메모리상의 대화 이력과 파일 경로가 초기화되고, 새 세션에서 LLM 으로부터 첫 응답을 받은 시점에 새로운 세션 파일을 생성한다.
 
 ## 커맨드
 - /command 와 같이 슬래시로 시작하는 컨맨드 기능을 제공한다.
     - /help: 커맨드 리스트와 설명을 보여줌
+    - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
 
 # Non-Functional Requirements
 - 개발 언어: go 1.25.2
-
