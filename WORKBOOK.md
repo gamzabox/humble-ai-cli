@@ -71,8 +71,12 @@ curl http://localhost:11434/api/chat -d '{
 - 만약 active true 인 모델이 없을 경우. 사용자가 prompt 입력시 /set-model 커맨드를 통해 모델을 먼저 선택 할 것을 가이드
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
-
-# Prompt 입력 시 커서 이동 기능 추가
+# TODO: Prompt 입력 시 커서 이동 기능 추가
 - 좌우 방향키와, Home, End 키를 통해 커서를 이동 시킬 수 있어야 함
+- 한국어, 중국어, 일본어 같은 언어 입력시에도 문제 없이 동작 해야 함
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
+# TODO: MCP Session 재사용 기능 추가
+- 특정 MCP Server 에 대한 최초의 Tool calling 으로 Session 이 생성되면 이후 동일한 MCP Server 에 대한 Tool calling 시 session 이 살아 있는지 확인하고 살아 있을경우 재 사용 하고, close 되었을 경우 재 생성 하도록 수정.
+- 프로그램 종료 시 모든 mcp session 을 close 할 것.
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
