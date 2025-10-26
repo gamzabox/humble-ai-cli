@@ -29,3 +29,8 @@
 - [x] Ollama MCP tool 전달 요구사항을 검증하는 테스트를 추가한다.
 - [x] Ollama provider 에 MCP tool 호출 처리 로직을 구현한다.
 - [x] 전체 테스트를 실행하고 관련 문서를 업데이트한다.
+
+# Config Schema 수정
+- [x] 새로운 config schema 요구사항을 테스트로 정의한다.
+- [x] 모델 활성화 플래그 기반 config 로직과 /set-model 안내를 구현한다.
+- [x] 전체 테스트를 실행하고 문서를 갱신한다.

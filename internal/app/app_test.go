@@ -249,8 +249,6 @@ func (s *stubMCP) Tools(ctx context.Context, server string) ([]app.MCPFunction, 
 func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "",
 			Models: []config.Model{
 				{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xx"},
 			},
@@ -290,9 +288,7 @@ func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 
 func TestAppDisplaysHelpCommand(t *testing.T) {
 	store := &stubStore{
-		cfg: config.Config{
-			ActiveModel: "",
-		},
+		cfg: config.Config{},
 	}
 	factory := newStubFactory()
 	input := strings.NewReader("/help\n/exit\n")
@@ -330,10 +326,8 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "stub-model",
 			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			},
 		},
 	}
@@ -422,10 +416,8 @@ func TestAppNewCommandStartsFreshSession(t *testing.T) {
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "stub-model",
 			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			},
 		},
 	}
@@ -526,10 +518,8 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 		t.Fatalf("failed to prepare config dir: %v", err)
 	}
 	cfg := config.Config{
-		Provider:    "openai",
-		ActiveModel: "model-a",
 		Models: []config.Model{
-			{Name: "model-a", Provider: "openai", APIKey: "key-a"},
+			{Name: "model-a", Provider: "openai", APIKey: "key-a", Active: true},
 			{Name: "model-b", Provider: "ollama", BaseURL: "http://localhost:11434"},
 		},
 	}
@@ -574,8 +564,15 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if updated.ActiveModel != "model-b" {
-		t.Fatalf("expected active model to be model-b, got %s", updated.ActiveModel)
+	active, ok := updated.ActiveModel()
+	if !ok {
+		t.Fatalf("expected an active model after selection")
+	}
+	if active.Name != "model-b" {
+		t.Fatalf("expected active model to be model-b, got %s", active.Name)
+	}
+	if updated.Models[0].Active {
+		t.Fatalf("expected original model to be inactive after selection")
 	}
 }
 
@@ -592,10 +589,8 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "stub-model",
 			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			},
 		},
 	}
@@ -706,10 +701,8 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "stub-model",
 			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			},
 		},
 	}
@@ -884,11 +877,9 @@ func TestAppWritesDebugLogs(t *testing.T) {
 
 	store := &stubStore{
 		cfg: config.Config{
-			Provider:    "openai",
-			ActiveModel: "stub-model",
-			LogLevel:    "debug",
+			LogLevel: "debug",
 			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			},
 		},
 	}

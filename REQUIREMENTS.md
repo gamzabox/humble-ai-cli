@@ -16,7 +16,9 @@
 - provider 를 설정 할 수 있고 provider 에 따라 설정 항목이 다름
     - openai: model, apiKey
     - ollama: model, baseUrl
+- models 의 각 항목에 `active` 플래그를 두고 true 로 설정된 단일 모델을 활성 모델로 간주한다.
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
+- 활성 모델이 존재하지 않으면 사용자 입력 시 /set-model 커맨드를 안내한다.
 - log level 설정: debug, info(default), warn, error
 - system prompt 설정은 $HOME/.humble-ai-cli/system_prompt.txt 파일을 사용 함
   - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함

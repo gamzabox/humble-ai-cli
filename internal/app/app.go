@@ -460,7 +460,7 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 	fmt.Fprintln(a.output, "Select a model (0 to cancel):")
 	for idx, m := range cfg.Models {
 		activeMarker := ""
-		if cfg.ActiveModel == m.Name {
+		if m.Active {
 			activeMarker = " *"
 		}
 		fmt.Fprintf(a.output, "  %d) %s (%s)%s\n", idx+1, m.Name, m.Provider, activeMarker)
@@ -487,10 +487,10 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 		fmt.Fprintln(a.output, "Model selection cancelled.")
 		return nil
 	}
-
+	for i := range cfg.Models {
+		cfg.Models[i].Active = i == choice-1
+	}
 	selected := cfg.Models[choice-1]
-
-	cfg.ActiveModel = selected.Name
 	if err := a.store.Save(cfg); err != nil {
 		return err
 	}
@@ -524,17 +524,12 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	cfg := a.cfg
 	a.cfgMu.RUnlock()
 
-	if cfg.ActiveModel == "" {
+	activeModel, ok := cfg.ActiveModel()
+	if !ok {
 		fmt.Fprintln(a.output, "No active model is configured. Use /set-model to choose a model.")
 		if len(cfg.Models) == 0 {
 			fmt.Fprintf(a.output, "Add model configuration to %s and try again.\n", a.configFilePath())
 		}
-		return nil
-	}
-
-	modelCfg, ok := cfg.FindModel(cfg.ActiveModel)
-	if !ok {
-		fmt.Fprintf(a.errOutput, "Active model %q not found. Update configuration.\n", cfg.ActiveModel)
 		return nil
 	}
 
@@ -544,7 +539,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	fmt.Fprintln(a.output, "Waiting for response...")
 
-	provider, err := a.factory.Create(modelCfg)
+	provider, err := a.factory.Create(activeModel)
 	if err != nil {
 		return fmt.Errorf("create provider: %w", err)
 	}
@@ -553,7 +548,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
 
 	req := llm.ChatRequest{
-		Model:        modelCfg.Name,
+		Model:        activeModel.Name,
 		Messages:     requestMessages,
 		SystemPrompt: a.systemPrompt,
 		Stream:       true,
@@ -653,7 +648,7 @@ loop:
 		llm.Message{Role: "assistant", Content: assistant.String()},
 	)
 
-	if err := a.persistHistory(modelCfg.Name, now); err != nil {
+	if err := a.persistHistory(activeModel.Name, now); err != nil {
 		fmt.Fprintf(a.errOutput, "Failed to persist history: %v\n", err)
 	}
 

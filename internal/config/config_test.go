@@ -18,11 +18,10 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 
 	cfgPath := filepath.Join(configDir, "config.json")
 	input := config.Config{
-		Provider:    "openai",
-		ActiveModel: "gpt-4o",
-		LogLevel:    "debug",
+		LogLevel: "debug",
 		Models: []config.Model{
-			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
+			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
 		},
 	}
 	raw, err := json.MarshalIndent(input, "", "  ")
@@ -39,9 +38,6 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if got.Provider != input.Provider || got.ActiveModel != input.ActiveModel {
-		t.Fatalf("unexpected config: %+v", got)
-	}
 	if got.LogLevel != input.LogLevel {
 		t.Fatalf("unexpected log level: %s", got.LogLevel)
 	}
@@ -51,6 +47,13 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.Models[0].Name != input.Models[0].Name {
 		t.Fatalf("unexpected model[0]: %+v", got.Models[0])
 	}
+	active, ok := got.ActiveModel()
+	if !ok {
+		t.Fatalf("expected active model to be present")
+	}
+	if active.Name != "gpt-4o" {
+		t.Fatalf("unexpected active model: %+v", active)
+	}
 }
 
 func TestFileStoreSavePersistsConfig(t *testing.T) {
@@ -58,12 +61,10 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	store := config.NewFileStore(home)
 
 	cfg := config.Config{
-		Provider:    "ollama",
-		ActiveModel: "llama2",
-		LogLevel:    "warn",
+		LogLevel: "warn",
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
-			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
+			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
 		},
 	}
 
@@ -80,26 +81,41 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("failed to unmarshal persisted config: %v", err)
 	}
-	if got.ActiveModel != cfg.ActiveModel {
-		t.Fatalf("unexpected active model: %s", got.ActiveModel)
-	}
 	if len(got.Models) != len(cfg.Models) {
 		t.Fatalf("unexpected model count in persisted config: %d", len(got.Models))
 	}
 	if got.LogLevel != cfg.LogLevel {
 		t.Fatalf("unexpected log level in persisted config: %s", got.LogLevel)
 	}
+	active, ok := got.ActiveModel()
+	if !ok {
+		t.Fatalf("expected active model in persisted config")
+	}
+	if active.Name != "llama2" {
+		t.Fatalf("unexpected active model after save: %s", active.Name)
+	}
 }
 
 func TestConfigValidateRejectsInvalidLogLevel(t *testing.T) {
 	cfg := config.Config{
-		ActiveModel: "model",
-		LogLevel:    "verbose",
+		LogLevel: "verbose",
 		Models: []config.Model{
-			{Name: "model", Provider: "openai"},
+			{Name: "model", Provider: "openai", Active: true},
 		},
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation error for invalid log level")
+	}
+}
+
+func TestConfigValidateRejectsMultipleActiveModels(t *testing.T) {
+	cfg := config.Config{
+		Models: []config.Model{
+			{Name: "model-a", Provider: "openai", Active: true},
+			{Name: "model-b", Provider: "ollama", Active: true},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error when multiple models are active")
 	}
 }

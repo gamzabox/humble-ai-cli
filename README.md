@@ -30,13 +30,12 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 
 ```json
 {
-  "provider": "openai",
-  "activeModel": "gpt-4o",
   "models": [
     {
       "name": "gpt-4o",
       "provider": "openai",
-      "apiKey": "sk-..."
+      "apiKey": "sk-...",
+      "active": true
     },
     {
       "name": "llama2",
@@ -49,6 +48,7 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 ```
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
+Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.
 
 ### Logging
 - Logs are written to `~/.humble-ai-cli/logs/application-hac-YYYY-MM-DD.log`.

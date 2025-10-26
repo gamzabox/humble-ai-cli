@@ -64,3 +64,15 @@ curl http://localhost:11434/api/chat -d '{
 }'
 ```
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Config 파일 Schema 수정
+- Config.json 에서 root 의 provider 와 activeModel 은 삭제
+- models 의 각 model 설정에 active 항목을 추가하고, true 면 해당 model 이 활성화 된 것으로 처리
+- 만약 active true 인 모델이 없을 경우. 사용자가 prompt 입력시 /set-model 커맨드를 통해 모델을 먼저 선택 할 것을 가이드
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Prompt 입력 시 커서 이동 기능 추가
+- 좌우 방향키와, Home, End 키를 통해 커서를 이동 시킬 수 있어야 함
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

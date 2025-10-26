@@ -19,14 +19,13 @@ type Model struct {
 	Provider string `json:"provider"`
 	APIKey   string `json:"apiKey,omitempty"`
 	BaseURL  string `json:"baseUrl,omitempty"`
+	Active   bool   `json:"active,omitempty"`
 }
 
 // Config captures CLI configuration.
 type Config struct {
-	Provider    string  `json:"provider,omitempty"`
-	ActiveModel string  `json:"activeModel,omitempty"`
-	LogLevel    string  `json:"logLevel,omitempty"`
-	Models      []Model `json:"models,omitempty"`
+	LogLevel string  `json:"logLevel,omitempty"`
+	Models   []Model `json:"models,omitempty"`
 }
 
 // FindModel locates a model by name.
@@ -40,14 +39,36 @@ func (c Config) FindModel(name string) (Model, bool) {
 }
 
 // Validate ensures configuration integrity.
+
+// ActiveModel returns the active model configuration if present.
+func (c Config) ActiveModel() (Model, bool) {
+	for _, m := range c.Models {
+		if m.Active {
+			return m, true
+		}
+	}
+	return Model{}, false
+}
+
+// ActiveModelName returns the name of the active model, or empty string.
+func (c Config) ActiveModelName() string {
+	if m, ok := c.ActiveModel(); ok {
+		return m.Name
+	}
+	return ""
+}
+
+// Validate ensures configuration integrity.
 func (c Config) Validate() error {
-	if c.ActiveModel == "" {
-		goto LEVEL
+	activeCount := 0
+	for _, m := range c.Models {
+		if m.Active {
+			activeCount++
+		}
 	}
-	if _, ok := c.FindModel(c.ActiveModel); !ok {
-		return fmt.Errorf("active model %q not found in models", c.ActiveModel)
+	if activeCount > 1 {
+		return errors.New("multiple models marked as active")
 	}
-LEVEL:
 	if strings.TrimSpace(c.LogLevel) != "" {
 		if _, ok := validLogLevels[strings.ToLower(strings.TrimSpace(c.LogLevel))]; !ok {
 			return fmt.Errorf("invalid logLevel %q", c.LogLevel)
