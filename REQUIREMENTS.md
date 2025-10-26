@@ -2,6 +2,7 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
+- Ollama API 를 호출할 때 MCP tool 정의를 `tools` 필드로 전달하여 Ollama 에서도 MCP 기능을 사용할 수 있어야 함
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.
 - 현재 활성화된 model 이 없는 상태에서 질문을 입력하면 /set-model 커맨트를 통해 model 을 선택하도록 가이드 하고, config.json 에 설정된 model 이 없을경우 config.json 에 model 설정을 추가 하라고 가이드 한다.
 - 프로그램 실행시 새로운 세션을 메모리상에서만 생성하고 파일로 저장하지 않는다. 대화 세션의 파일 저장은 최초 LLM 으로 부터 답변을 받은 시점 부터 이다.

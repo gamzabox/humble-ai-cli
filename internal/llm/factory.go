@@ -457,49 +457,157 @@ type ollamaProvider struct {
 }
 
 type ollamaMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	Tool    string `json:"tool,omitempty"`
+	Role      string                   `json:"role"`
+	Content   string                   `json:"content"`
+	ToolCalls []ollamaOutgoingToolCall `json:"tool_calls,omitempty"`
+	ToolName  string                   `json:"tool_name,omitempty"`
 }
 
 type ollamaRequestPayload struct {
 	Model    string          `json:"model"`
 	Stream   bool            `json:"stream"`
 	Messages []ollamaMessage `json:"messages"`
-	Tools    []ollamaTool    `json:"tools,omitempty"`
+	Tools    []openAITool    `json:"tools,omitempty"`
+}
+
+type ollamaToolFunction struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type ollamaRawToolCall struct {
+	ID        string              `json:"id"`
+	Type      string              `json:"type"`
+	Name      string              `json:"name"`
+	Arguments json.RawMessage     `json:"arguments"`
+	Function  *ollamaToolFunction `json:"function"`
 }
 
 type ollamaStreamChunk struct {
 	Done    bool `json:"done"`
 	Message struct {
-		Role    string          `json:"role"`
-		Content string          `json:"content"`
-		Tool    *ollamaToolCall `json:"tool,omitempty"`
+		Role      string              `json:"role"`
+		Content   string              `json:"content"`
+		ToolCalls []ollamaRawToolCall `json:"tool_calls"`
 	} `json:"message"`
 	Error string `json:"error"`
 }
 
-type ollamaTool struct {
-	Type     string             `json:"type"`
-	Function ollamaToolFunction `json:"function"`
+type ollamaOutgoingToolCall struct {
+	ID       string                      `json:"id,omitempty"`
+	Type     string                      `json:"type"`
+	Function ollamaOutgoingToolSignature `json:"function"`
 }
 
-type ollamaToolFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-}
-
-type ollamaToolCall struct {
+type ollamaOutgoingToolSignature struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
 }
 
+func (tc ollamaRawToolCall) toOpenAIToolCall() openAIToolCall {
+	name := strings.TrimSpace(tc.Name)
+	if tc.Function != nil {
+		if fn := strings.TrimSpace(tc.Function.Name); fn != "" {
+			name = fn
+		}
+	}
+	if name == "" && tc.Function != nil {
+		name = tc.Function.Name
+	}
+
+	args := tc.Arguments
+	if tc.Function != nil && len(tc.Function.Arguments) > 0 {
+		args = tc.Function.Arguments
+	}
+
+	argText := strings.TrimSpace(string(args))
+	if argText == "" || argText == "null" {
+		argText = "{}"
+	}
+
+	callType := strings.TrimSpace(tc.Type)
+	if callType == "" {
+		callType = "function"
+	}
+
+	return openAIToolCall{
+		ID:   tc.ID,
+		Type: callType,
+		Function: openAIToolFunction{
+			Name:      name,
+			Arguments: argText,
+		},
+	}
+}
+
 func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
-	payload, err := buildOllamaRequest(req)
+	stream := make(chan StreamChunk)
+
+	messages := buildOllamaMessages(req)
+	tools, definitions := buildOpenAITools(req.Tools)
+
+	go func() {
+		defer close(stream)
+
+		thinkingSent := false
+		for {
+			result, err := p.streamOnce(ctx, req.Model, true, messages, tools, stream, &thinkingSent)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				stream <- StreamChunk{Type: ChunkError, Err: err}
+				return
+			}
+
+			messages = append(messages, result.assistantMessage)
+
+			if len(result.toolCalls) == 0 {
+				stream <- StreamChunk{Type: ChunkDone}
+				return
+			}
+
+			if len(definitions) == 0 {
+				stream <- StreamChunk{Type: ChunkError, Err: fmt.Errorf("ollama requested tool call but no tool definitions provided")}
+				return
+			}
+
+			for _, call := range result.toolCalls {
+				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					}
+					stream <- StreamChunk{Type: ChunkError, Err: err}
+					return
+				}
+				messages = append(messages, toolMessage)
+			}
+		}
+	}()
+
+	return stream, nil
+}
+
+type ollamaPassResult struct {
+	assistantMessage ollamaMessage
+	toolCalls        []toolCallRequest
+}
+
+func (p *ollamaProvider) streamOnce(
+	ctx context.Context,
+	model string,
+	streaming bool,
+	messages []ollamaMessage,
+	tools []openAITool,
+	stream chan<- StreamChunk,
+	thinkingSent *bool,
+) (*ollamaPassResult, error) {
+	payload, err := buildOllamaPayload(model, messages, streaming, tools)
 	if err != nil {
 		return nil, err
 	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -508,6 +616,9 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
 		return nil, err
 	}
 	if resp.StatusCode >= 300 {
@@ -515,52 +626,131 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return nil, fmt.Errorf("ollama response %d: %s", resp.StatusCode, string(body))
 	}
+	defer resp.Body.Close()
 
-	stream := make(chan StreamChunk)
-
-	go func() {
-		defer resp.Body.Close()
-		defer close(stream)
-
+	if !*thinkingSent {
 		stream <- StreamChunk{Type: ChunkThinking}
+		*thinkingSent = true
+	}
 
-		decoder := json.NewDecoder(resp.Body)
-		for {
-			var chunk ollamaStreamChunk
-			if err := decoder.Decode(&chunk); err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-					stream <- StreamChunk{Type: ChunkDone}
-					return
-				}
-				stream <- StreamChunk{Type: ChunkError, Err: err}
-				return
+	decoder := json.NewDecoder(resp.Body)
+	var (
+		builder   strings.Builder
+		toolCalls []openAIToolCall
+		assistant = ollamaMessage{Role: "assistant"}
+	)
+
+	for {
+		var chunk ollamaStreamChunk
+		if err := decoder.Decode(&chunk); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
 			}
-
-			if chunk.Error != "" {
-				stream <- StreamChunk{Type: ChunkError, Err: errors.New(chunk.Error)}
-				continue
+			if errors.Is(err, context.Canceled) {
+				return nil, err
 			}
+			return nil, err
+		}
 
-			if chunk.Message.Tool != nil {
-				stream <- StreamChunk{Type: ChunkToolCall, ToolCall: translateOllamaToolCall(chunk.Message.Tool)}
-				continue
-			}
+		if chunk.Error != "" {
+			stream <- StreamChunk{Type: ChunkError, Err: errors.New(chunk.Error)}
+			continue
+		}
 
-			if chunk.Message.Content != "" {
-				stream <- StreamChunk{Type: ChunkToken, Content: chunk.Message.Content}
-			}
+		if chunk.Message.Content != "" {
+			stream <- StreamChunk{Type: ChunkToken, Content: chunk.Message.Content}
+			builder.WriteString(chunk.Message.Content)
+		}
 
-			if chunk.Done {
-				stream <- StreamChunk{Type: ChunkDone}
-				return
+		if len(chunk.Message.ToolCalls) > 0 {
+			for _, raw := range chunk.Message.ToolCalls {
+				call := raw.toOpenAIToolCall()
+				toolCalls = append(toolCalls, call)
 			}
 		}
-	}()
 
-	return stream, nil
+		if chunk.Done {
+			break
+		}
+	}
+
+	assistant.Content = builder.String()
+	if len(toolCalls) == 0 {
+		return &ollamaPassResult{assistantMessage: assistant}, nil
+	}
+
+	assistant.ToolCalls = convertToOllamaOutgoingCalls(toolCalls)
+	requests := make([]toolCallRequest, 0, len(toolCalls))
+	for _, call := range toolCalls {
+		requests = append(requests, toolCallRequest{Call: call})
+	}
+
+	return &ollamaPassResult{
+		assistantMessage: assistant,
+		toolCalls:        requests,
+	}, nil
+}
+
+func (p *ollamaProvider) awaitToolResult(
+	ctx context.Context,
+	stream chan<- StreamChunk,
+	definitions map[string]ToolDefinition,
+	call toolCallRequest,
+) (ollamaMessage, error) {
+	definition, ok := definitions[call.Call.Function.Name]
+	if !ok {
+		return ollamaMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+	}
+
+	args, err := call.arguments()
+	if err != nil {
+		return ollamaMessage{}, err
+	}
+
+	resultCh := make(chan ToolResult, 1)
+	tc := &ToolCall{
+		Server:      definition.Server,
+		Method:      definition.Method,
+		Description: definition.Description,
+		Arguments:   args,
+		Respond: func(ctx context.Context, result ToolResult) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case resultCh <- result:
+				return nil
+			}
+		},
+	}
+
+	stream <- StreamChunk{Type: ChunkToolCall, ToolCall: tc}
+
+	var result ToolResult
+	select {
+	case <-ctx.Done():
+		return ollamaMessage{}, ctx.Err()
+	case result = <-resultCh:
+	}
+
+	content := strings.TrimSpace(result.Content)
+	if content == "" {
+		content = "{}"
+	}
+
+	return ollamaMessage{
+		Role:     "tool",
+		Content:  content,
+		ToolName: call.Call.Function.Name,
+	}, nil
 }
 
 func buildOllamaRequest(req ChatRequest) ([]byte, error) {
+	messages := buildOllamaMessages(req)
+	tools, _ := buildOpenAITools(req.Tools)
+	return buildOllamaPayload(req.Model, messages, req.Stream, tools)
+}
+
+func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
 	if strings.TrimSpace(req.SystemPrompt) != "" {
 		messages = append(messages, ollamaMessage{
@@ -574,61 +764,52 @@ func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 			Content: msg.Content,
 		})
 	}
+	return messages
+}
+
+func buildOllamaPayload(model string, messages []ollamaMessage, stream bool, tools []openAITool) ([]byte, error) {
 	payload := ollamaRequestPayload{
-		Model:    req.Model,
-		Stream:   true,
+		Model:    model,
+		Stream:   stream,
 		Messages: messages,
 	}
-	if len(req.Tools) > 0 {
-		payload.Tools = buildOllamaTools(req.Tools)
+	if len(tools) > 0 {
+		payload.Tools = tools
 	}
 	return json.Marshal(payload)
 }
 
-func buildOllamaTools(defs []ToolDefinition) []ollamaTool {
-	out := make([]ollamaTool, 0, len(defs))
-	for _, def := range defs {
-		params := cloneAnyMap(def.Parameters)
-		if params == nil {
-			params = defaultToolSchema()
+func convertToOllamaOutgoingCalls(calls []openAIToolCall) []ollamaOutgoingToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]ollamaOutgoingToolCall, 0, len(calls))
+	for _, call := range calls {
+		var args map[string]any
+		raw := strings.TrimSpace(call.Function.Arguments)
+		if raw == "" {
+			args = map[string]any{}
+		} else {
+			if err := json.Unmarshal([]byte(raw), &args); err != nil {
+				args = map[string]any{
+					"__raw": raw,
+				}
+			}
 		}
-		out = append(out, ollamaTool{
-			Type: "function",
-			Function: ollamaToolFunction{
-				Name:        def.Name,
-				Description: def.Description,
-				Parameters:  params,
+		callType := call.Type
+		if callType == "" {
+			callType = "function"
+		}
+		out = append(out, ollamaOutgoingToolCall{
+			ID:   call.ID,
+			Type: callType,
+			Function: ollamaOutgoingToolSignature{
+				Name:      call.Function.Name,
+				Arguments: args,
 			},
 		})
 	}
 	return out
-}
-
-func translateOllamaToolCall(call *ollamaToolCall) *ToolCall {
-	if call == nil {
-		return nil
-	}
-	return &ToolCall{
-		Server:    extractServerFromTool(call.Name),
-		Method:    extractMethodFromTool(call.Name),
-		Arguments: call.Arguments,
-	}
-}
-
-func extractServerFromTool(name string) string {
-	parts := strings.SplitN(name, "__", 2)
-	if len(parts) == 2 {
-		return parts[0]
-	}
-	return ""
-}
-
-func extractMethodFromTool(name string) string {
-	parts := strings.SplitN(name, "__", 2)
-	if len(parts) == 2 {
-		return parts[1]
-	}
-	return name
 }
 
 // Timeout returns a copy of the factory with a custom timeout.
