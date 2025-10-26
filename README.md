@@ -49,6 +49,10 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 
+### Logging
+- Logs are written to `~/.humble-ai-cli/logs/application-hac-YYYY-MM-DD.log`.
+- Set `logLevel` (debug, info, warn, error) in `config.json` to control verbosity. Debug level includes detailed LLM and MCP traces.
+
 ## MCP Server Configuration
 - Create the MCP directory if it does not exist: `mkdir -p ~/.humble-ai-cli/mcp_servers`.
 - Add one JSON file per server. Each file must set `enabled` to `true` for the CLI to load it. Minimal example saved as `~/.humble-ai-cli/mcp_servers/calculator.json`:

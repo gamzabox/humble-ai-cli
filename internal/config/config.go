@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -24,6 +25,7 @@ type Model struct {
 type Config struct {
 	Provider    string  `json:"provider,omitempty"`
 	ActiveModel string  `json:"activeModel,omitempty"`
+	LogLevel    string  `json:"logLevel,omitempty"`
 	Models      []Model `json:"models,omitempty"`
 }
 
@@ -40,10 +42,16 @@ func (c Config) FindModel(name string) (Model, bool) {
 // Validate ensures configuration integrity.
 func (c Config) Validate() error {
 	if c.ActiveModel == "" {
-		return nil
+		goto LEVEL
 	}
 	if _, ok := c.FindModel(c.ActiveModel); !ok {
 		return fmt.Errorf("active model %q not found in models", c.ActiveModel)
+	}
+LEVEL:
+	if strings.TrimSpace(c.LogLevel) != "" {
+		if _, ok := validLogLevels[strings.ToLower(strings.TrimSpace(c.LogLevel))]; !ok {
+			return fmt.Errorf("invalid logLevel %q", c.LogLevel)
+		}
 	}
 	return nil
 }
@@ -119,3 +127,10 @@ func (f *FileStore) Save(cfg Config) error {
 }
 
 var _ Store = (*FileStore)(nil)
+
+var validLogLevels = map[string]struct{}{
+	"debug": {},
+	"info":  {},
+	"warn":  {},
+	"error": {},
+}

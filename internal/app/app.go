@@ -19,6 +19,7 @@ import (
 
 	"gamzabox.com/humble-ai-cli/internal/config"
 	"gamzabox.com/humble-ai-cli/internal/llm"
+	"gamzabox.com/humble-ai-cli/internal/logging"
 	mcpkg "gamzabox.com/humble-ai-cli/internal/mcp"
 )
 
@@ -78,6 +79,7 @@ type App struct {
 	clock       Clock
 
 	systemPrompt string
+	logger       *logging.Logger
 	mcp          MCPExecutor
 	mcpServers   map[string]MCPServer
 	mcpFunctions map[string][]MCPFunction
@@ -172,6 +174,11 @@ func New(opts Options) (*App, error) {
 		cfg = config.Config{}
 	}
 
+	logger, err := logging.NewLogger(home, cfg.LogLevel)
+	if err != nil {
+		return nil, fmt.Errorf("initialize logger: %w", err)
+	}
+
 	app := &App{
 		store:        opts.Store,
 		factory:      opts.Factory,
@@ -182,6 +189,7 @@ func New(opts Options) (*App, error) {
 		homeDir:      home,
 		clock:        clock,
 		systemPrompt: "",
+		logger:       logger,
 		mcp:          mcpExec,
 		mcpServers:   serverMap,
 		mcpFunctions: make(map[string][]MCPFunction),
@@ -231,6 +239,7 @@ func (a *App) initializeSystemPrompt() error {
 		return err
 	}
 	a.systemPrompt = prompt
+	a.logDebug("System prompt initialized (length=%d)", len(prompt))
 	return nil
 }
 
@@ -246,17 +255,21 @@ func (a *App) loadMCPFunctions(ctx context.Context) error {
 	}
 	a.mcpMu.RUnlock()
 	for _, srv := range a.mcpServers {
+		a.logDebug("MCP initialization: loading tools for server=%s", srv.Name)
 		tools, err := a.mcp.Tools(ctx, srv.Name)
 		if err != nil {
 			fmt.Fprintf(a.errOutput, "Failed to list tools for %s: %v\n", srv.Name, err)
+			a.logError("MCP initialization failed: server=%s err=%v", srv.Name, err)
 			continue
 		}
 		functions[srv.Name] = cloneMCPFunctions(tools)
+		a.logDebug("MCP initialization: server=%s tools=%d", srv.Name, len(tools))
 	}
 
 	a.mcpMu.Lock()
 	a.mcpFunctions = functions
 	a.mcpMu.Unlock()
+	a.logDebug("MCP initialization complete: servers=%d", len(functions))
 	return nil
 }
 
@@ -546,6 +559,11 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		Stream:       true,
 		Tools:        a.availableToolDefinitions(),
 	}
+	if data, err := json.Marshal(req); err == nil {
+		a.logDebug("LLM request: %s", string(data))
+	} else {
+		a.logError("LLM request marshal error: %v", err)
+	}
 
 	reqCtx, cancel := context.WithCancel(ctx)
 	a.enterResponding(cancel)
@@ -565,6 +583,7 @@ loop:
 	for chunk := range stream {
 		if chunk.Err != nil {
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
+			a.logError("LLM stream error: %v", chunk.Err)
 			errored = true
 			continue
 		}
@@ -586,17 +605,20 @@ loop:
 			if chunk.ToolCall == nil {
 				continue
 			}
+			a.logDebug("LLM requested MCP tool: server=%s method=%s", chunk.ToolCall.Server, chunk.ToolCall.Method)
 			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall); err != nil {
 				if errors.Is(err, errToolDeclined) {
 					cancelledByUser = true
 				} else {
 					fmt.Fprintf(a.errOutput, "MCP call failed: %v\n", err)
+					a.logError("MCP call handling failed: %v", err)
 				}
 				errored = true
 				break loop
 			}
 		case llm.ChunkError:
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
+			a.logError("LLM stream error chunk: %v", chunk.Err)
 			errored = true
 		case llm.ChunkDone:
 			// finished
@@ -604,11 +626,13 @@ loop:
 	}
 
 	if cancelledByUser {
+		a.logDebug("LLM response cancelled by user")
 		return nil
 	}
 
 	if reqCtx.Err() != nil {
 		fmt.Fprintln(a.output, "\nResponse cancelled.")
+		a.logDebug("LLM response context cancelled: %v", reqCtx.Err())
 		return nil
 	}
 
@@ -617,8 +641,10 @@ loop:
 	}
 
 	if errored {
+		a.logDebug("LLM response aborted due to stream error")
 		return nil
 	}
+	a.logDebug("LLM response: %s", assistant.String())
 
 	now := a.clock.Now()
 
@@ -792,10 +818,23 @@ func (a *App) functionDescription(server, method string) string {
 	return ""
 }
 
+func (a *App) logDebug(format string, args ...any) {
+	if a.logger != nil {
+		a.logger.Debugf(format, args...)
+	}
+}
+
+func (a *App) logError(format string, args ...any) {
+	if a.logger != nil {
+		a.logger.Errorf(format, args...)
+	}
+}
+
 func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
 	if call == nil {
 		return nil
 	}
+	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
 	description := strings.TrimSpace(call.Description)
 	if description == "" {
@@ -831,11 +870,13 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 				return errors.New("mcp executor not configured")
 			}
 
+			a.logDebug("MCP call start: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 			result, err := a.mcp.Call(ctx, call.Server, call.Method, call.Arguments)
 			if err != nil {
 				if call.Respond != nil {
 					_ = call.Respond(ctx, llm.ToolResult{Content: err.Error(), IsError: true})
 				}
+				a.logError("MCP call error: server=%s method=%s err=%v", call.Server, call.Method, err)
 				return err
 			}
 
@@ -845,6 +886,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 				}
 			}
 
+			a.logDebug("MCP call success: server=%s method=%s result=%s", call.Server, call.Method, strings.TrimSpace(result.Content))
 			fmt.Fprintln(a.output, "MCP call completed.")
 			return nil
 		case "n", "no":
@@ -852,6 +894,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 				_ = call.Respond(ctx, llm.ToolResult{Content: "user cancelled MCP call", IsError: true})
 			}
 			cancel()
+			a.logDebug("MCP call cancelled by user: server=%s method=%s", call.Server, call.Method)
 			fmt.Fprintln(a.output, "MCP call cancelled by user.")
 			return errToolDeclined
 		default:

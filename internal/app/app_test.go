@@ -866,6 +866,114 @@ func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
 	}
 }
 
+func TestAppWritesDebugLogs(t *testing.T) {
+	home := t.TempDir()
+	logDir := filepath.Join(home, ".humble-ai-cli", "logs")
+	if err := os.MkdirAll(filepath.Join(home, ".humble-ai-cli"), 0o755); err != nil {
+		t.Fatalf("failed to prepare config dir: %v", err)
+	}
+
+	store := &stubStore{
+		cfg: config.Config{
+			Provider:    "openai",
+			ActiveModel: "stub-model",
+			LogLevel:    "debug",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server:      "calculator",
+			Method:      "add",
+			Description: "Add numbers.",
+			Arguments: map[string]any{
+				"a": float64(1),
+				"b": float64(2),
+			},
+		},
+		after: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Simple math"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add two numbers."},
+			},
+		},
+		response: llm.ToolResult{Content: "3"},
+	}
+
+	input := strings.NewReader("Hi\nY\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case <-resultCh:
+	default:
+		t.Fatalf("expected tool result to be delivered")
+	}
+
+	files, err := filepath.Glob(filepath.Join(logDir, "application-hac-*.log"))
+	if err != nil {
+		t.Fatalf("glob logs error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("expected log file to be created in %s", logDir)
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	logContent := string(data)
+	for _, phrase := range []string{
+		"LLM request",
+		"LLM response",
+		"MCP initialization",
+		"MCP call start",
+		"MCP call success",
+	} {
+		if !strings.Contains(logContent, phrase) {
+			t.Fatalf("expected log to contain %q, got:\n%s", phrase, logContent)
+		}
+	}
+}
+
 type fixedClock time.Time
 
 func (c fixedClock) Now() time.Time {

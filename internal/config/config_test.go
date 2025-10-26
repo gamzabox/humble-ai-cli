@@ -20,6 +20,7 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	input := config.Config{
 		Provider:    "openai",
 		ActiveModel: "gpt-4o",
+		LogLevel:    "debug",
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 		},
@@ -41,6 +42,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.Provider != input.Provider || got.ActiveModel != input.ActiveModel {
 		t.Fatalf("unexpected config: %+v", got)
 	}
+	if got.LogLevel != input.LogLevel {
+		t.Fatalf("unexpected log level: %s", got.LogLevel)
+	}
 	if len(got.Models) != len(input.Models) {
 		t.Fatalf("unexpected models size: %d", len(got.Models))
 	}
@@ -56,6 +60,7 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	cfg := config.Config{
 		Provider:    "ollama",
 		ActiveModel: "llama2",
+		LogLevel:    "warn",
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -80,5 +85,21 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if len(got.Models) != len(cfg.Models) {
 		t.Fatalf("unexpected model count in persisted config: %d", len(got.Models))
+	}
+	if got.LogLevel != cfg.LogLevel {
+		t.Fatalf("unexpected log level in persisted config: %s", got.LogLevel)
+	}
+}
+
+func TestConfigValidateRejectsInvalidLogLevel(t *testing.T) {
+	cfg := config.Config{
+		ActiveModel: "model",
+		LogLevel:    "verbose",
+		Models: []config.Model{
+			{Name: "model", Provider: "openai"},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for invalid log level")
 	}
 }
