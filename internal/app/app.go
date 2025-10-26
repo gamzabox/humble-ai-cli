@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"gamzabox.com/humble-ai-cli/internal/config"
 	"gamzabox.com/humble-ai-cli/internal/llm"
+	mcpkg "gamzabox.com/humble-ai-cli/internal/mcp"
 )
 
 // Clock abstracts time access for testability.
@@ -36,6 +38,16 @@ type ProviderFactory interface {
 	Create(config.Model) (llm.ChatProvider, error)
 }
 
+// MCPServer describes a configured MCP server surfaced to the LLM.
+type MCPServer = mcpkg.Server
+
+// MCPExecutor resolves server metadata and executes MCP tool calls.
+type MCPExecutor interface {
+	EnabledServers() []MCPServer
+	Describe(server string) (MCPServer, bool)
+	Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error)
+}
+
 // Options configures App creation.
 type Options struct {
 	Store          config.Store
@@ -47,6 +59,7 @@ type Options struct {
 	HomeDir        string
 	Clock          Clock
 	Interrupts     chan os.Signal
+	MCP            MCPExecutor
 }
 
 // App coordinates CLI behaviour.
@@ -61,6 +74,8 @@ type App struct {
 	clock       Clock
 
 	systemPrompt string
+	mcp          MCPExecutor
+	mcpServers   map[string]MCPServer
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
@@ -87,6 +102,8 @@ const (
 	modeInput appMode = iota
 	modeResponding
 )
+
+var errToolDeclined = errors.New("mcp call declined by user")
 
 // New constructs an App from options.
 func New(opts Options) (*App, error) {
@@ -127,6 +144,20 @@ func New(opts Options) (*App, error) {
 		historyRoot = filepath.Join(home, ".humble-ai-cli", "sessions")
 	}
 
+	mcpExec := opts.MCP
+	if mcpExec == nil {
+		manager, err := mcpkg.NewManager(home)
+		if err != nil {
+			return nil, fmt.Errorf("initialize MCP manager: %w", err)
+		}
+		mcpExec = manager
+	}
+	servers := mcpExec.EnabledServers()
+	serverMap := make(map[string]MCPServer, len(servers))
+	for _, srv := range servers {
+		serverMap[srv.Name] = srv
+	}
+
 	cfg, err := opts.Store.Load()
 	if err != nil {
 		if !errors.Is(err, config.ErrNotFound) {
@@ -135,7 +166,7 @@ func New(opts Options) (*App, error) {
 		cfg = config.Config{}
 	}
 
-	systemPrompt, err := loadSystemPrompt(home)
+	systemPrompt, err := ensureSystemPrompt(home, servers)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +181,8 @@ func New(opts Options) (*App, error) {
 		homeDir:      home,
 		clock:        clock,
 		systemPrompt: systemPrompt,
+		mcp:          mcpExec,
+		mcpServers:   serverMap,
 		cfg:          cfg,
 		mode:         modeInput,
 	}
@@ -159,16 +192,50 @@ func New(opts Options) (*App, error) {
 	return app, nil
 }
 
-func loadSystemPrompt(home string) (string, error) {
+func ensureSystemPrompt(home string, servers []MCPServer) (string, error) {
 	path := filepath.Join(home, ".humble-ai-cli", "system_prompt.txt")
 	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+	if err == nil {
+		return strings.TrimSpace(string(data)), nil
 	}
-	if err != nil {
+	if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("read system prompt: %w", err)
 	}
-	return strings.TrimSpace(string(data)), nil
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("create system prompt dir: %w", err)
+	}
+
+	content := buildDefaultSystemPrompt(servers)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("write default system prompt: %w", err)
+	}
+	return strings.TrimSpace(content), nil
+}
+
+func buildDefaultSystemPrompt(servers []MCPServer) string {
+	var builder strings.Builder
+
+	builder.WriteString("You are the humble-ai command line assistant. MCP server tooling is available.\n")
+	builder.WriteString("When you need external data or actions, request an MCP call by emitting a tool call chunk with the target server, method, and JSON arguments.\n")
+	builder.WriteString("Always wait for tool results before finalizing the response.\n")
+
+	if len(servers) > 0 {
+		builder.WriteString("\nAvailable MCP servers:\n")
+		for _, srv := range servers {
+			builder.WriteString("  - ")
+			builder.WriteString(srv.Name)
+			desc := strings.TrimSpace(srv.Description)
+			if desc != "" {
+				builder.WriteString(": ")
+				builder.WriteString(desc)
+			}
+			builder.WriteString("\n")
+		}
+	}
+
+	builder.WriteString("\nAfter the tool call completes, integrate the returned data into your answer.\n")
+	return builder.String()
 }
 
 func (a *App) setupSignals(ch chan os.Signal) {
@@ -389,6 +456,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		Messages:     requestMessages,
 		SystemPrompt: a.systemPrompt,
 		Stream:       true,
+		MCPServers:   a.availableMCPTooling(),
 	}
 
 	reqCtx, cancel := context.WithCancel(ctx)
@@ -403,7 +471,9 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	var assistant strings.Builder
 	thinkingShown := false
 	errored := false
+	cancelledByUser := false
 
+loop:
 	for chunk := range stream {
 		if chunk.Err != nil {
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
@@ -424,12 +494,29 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 			}
 			fmt.Fprint(a.output, chunk.Content)
 			assistant.WriteString(chunk.Content)
+		case llm.ChunkToolCall:
+			if chunk.ToolCall == nil {
+				continue
+			}
+			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall); err != nil {
+				if errors.Is(err, errToolDeclined) {
+					cancelledByUser = true
+				} else {
+					fmt.Fprintf(a.errOutput, "MCP call failed: %v\n", err)
+				}
+				errored = true
+				break loop
+			}
 		case llm.ChunkError:
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
 			errored = true
 		case llm.ChunkDone:
 			// finished
 		}
+	}
+
+	if cancelledByUser {
+		return nil
 	}
 
 	if reqCtx.Err() != nil {
@@ -519,6 +606,91 @@ func (a *App) createHistoryFile(model string, when time.Time) (string, error) {
 		return "", fmt.Errorf("write history: %w", err)
 	}
 	return path, nil
+}
+
+func (a *App) availableMCPTooling() []llm.MCPServerTool {
+	if len(a.mcpServers) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(a.mcpServers))
+	for name := range a.mcpServers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	tools := make([]llm.MCPServerTool, 0, len(names))
+	for _, name := range names {
+		srv := a.mcpServers[name]
+		tools = append(tools, llm.MCPServerTool{
+			Name:        srv.Name,
+			Description: srv.Description,
+		})
+	}
+	return tools
+}
+
+func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
+	if call == nil {
+		return nil
+	}
+
+	description := strings.TrimSpace(call.Description)
+	if description == "" {
+		if srv, ok := a.mcpServers[call.Server]; ok {
+			description = strings.TrimSpace(srv.Description)
+		} else if a.mcp != nil {
+			if srv, ok := a.mcp.Describe(call.Server); ok {
+				description = strings.TrimSpace(srv.Description)
+			}
+		}
+	}
+	if description == "" {
+		description = "No description provided."
+	}
+
+	fmt.Fprintf(a.output, "\nMCP server %s requested: %s\n", call.Server, description)
+
+	for {
+		fmt.Fprint(a.output, "Call now? (Y/N): ")
+		answer, err := a.readLine()
+		if err != nil {
+			return err
+		}
+
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "y", "yes":
+			if a.mcp == nil {
+				return errors.New("mcp executor not configured")
+			}
+
+			result, err := a.mcp.Call(ctx, call.Server, call.Method, call.Arguments)
+			if err != nil {
+				if call.Respond != nil {
+					_ = call.Respond(ctx, llm.ToolResult{Content: err.Error(), IsError: true})
+				}
+				return err
+			}
+
+			if call.Respond != nil {
+				if err := call.Respond(ctx, result); err != nil && !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("deliver MCP result: %w", err)
+				}
+			}
+
+			fmt.Fprintln(a.output, "MCP call completed.")
+			return nil
+		case "n", "no":
+			if call.Respond != nil {
+				_ = call.Respond(ctx, llm.ToolResult{Content: "user cancelled MCP call", IsError: true})
+			}
+			cancel()
+			fmt.Fprintln(a.output, "MCP call cancelled by user.")
+			return errToolDeclined
+		default:
+			fmt.Fprintln(a.output, "Please answer with Y or N.")
+		}
+	}
 }
 
 func (a *App) enterResponding(cancel context.CancelFunc) {

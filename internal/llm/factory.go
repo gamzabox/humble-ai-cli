@@ -73,7 +73,64 @@ type openAIProvider struct {
 }
 
 func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
-	payload, err := buildOpenAIRequest(req)
+	stream := make(chan StreamChunk)
+	go func() {
+		defer close(stream)
+
+		var (
+			messages     = buildOpenAIMessages(req)
+			tools        = buildOpenAITools(req.MCPServers)
+			thinkingSent bool
+			servers      = make(map[string]string, len(req.MCPServers))
+		)
+
+		for _, tool := range req.MCPServers {
+			servers[tool.Name] = tool.Description
+		}
+
+		for {
+			result, err := p.streamOnce(ctx, req.Model, messages, tools, stream, &thinkingSent)
+			if err != nil {
+				if err != context.Canceled {
+					stream <- StreamChunk{Type: ChunkError, Err: err}
+				}
+				return
+			}
+
+			messages = append(messages, result.assistantMessage)
+
+			if len(result.toolCalls) == 0 {
+				stream <- StreamChunk{Type: ChunkDone}
+				return
+			}
+
+			for _, call := range result.toolCalls {
+				toolMessage, err := p.awaitToolResult(ctx, stream, servers, call)
+				if err != nil {
+					if err != context.Canceled {
+						stream <- StreamChunk{Type: ChunkError, Err: err}
+					}
+					return
+				}
+				messages = append(messages, toolMessage)
+			}
+		}
+	}()
+	return stream, nil
+}
+
+type openAIPassResult struct {
+	assistantMessage openAIMessage
+	toolCalls        []toolCallRequest
+}
+
+func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages []openAIMessage, tools []openAITool, stream chan<- StreamChunk, thinkingSent *bool) (*openAIPassResult, error) {
+	payload, err := json.Marshal(openAIRequestPayload{
+		Model:    model,
+		Stream:   true,
+		Messages: messages,
+		Tools:    tools,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -95,77 +152,170 @@ func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 		return nil, fmt.Errorf("openai response %d: %s", resp.StatusCode, string(body))
 	}
 
-	stream := make(chan StreamChunk)
-	go func() {
-		defer resp.Body.Close()
-		defer close(stream)
+	defer resp.Body.Close()
 
+	if !*thinkingSent {
 		stream <- StreamChunk{Type: ChunkThinking}
+		*thinkingSent = true
+	}
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var (
+		builder       strings.Builder
+		accumulator   = newToolAccumulator()
+		assistantCall = openAIMessage{Role: "assistant"}
+	)
 
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			if !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if data == "[DONE]" {
-				stream <- StreamChunk{Type: ChunkDone}
-				return
-			}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
-			var chunk openAIStreamChunk
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				stream <- StreamChunk{Type: ChunkError, Err: err}
-				continue
-			}
-			for _, choice := range chunk.Choices {
-				if choice.Delta.Content != "" {
-					stream <- StreamChunk{Type: ChunkToken, Content: choice.Delta.Content}
-				}
-				if choice.FinishReason == "stop" {
-					stream <- StreamChunk{Type: ChunkDone}
-					return
-				}
-			}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
 		}
 
-		if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
-			stream <- StreamChunk{Type: ChunkError, Err: err}
-		} else {
-			stream <- StreamChunk{Type: ChunkDone}
+		var chunk openAIStreamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return nil, err
 		}
-	}()
 
-	return stream, nil
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Content != "" {
+				stream <- StreamChunk{Type: ChunkToken, Content: choice.Delta.Content}
+				builder.WriteString(choice.Delta.Content)
+			}
+
+			if len(choice.Delta.ToolCalls) > 0 {
+				accumulator.add(choice.Delta.ToolCalls)
+			}
+
+			if choice.FinishReason == "stop" {
+				assistantCall.Content = builder.String()
+				return &openAIPassResult{assistantMessage: assistantCall}, nil
+			}
+			if choice.FinishReason == "tool_calls" {
+				assistantCall.Content = builder.String()
+				assistantCall.ToolCalls = accumulator.complete()
+				return &openAIPassResult{
+					assistantMessage: assistantCall,
+					toolCalls:        accumulator.requests(),
+				}, nil
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		return nil, err
+	}
+
+	assistantCall.Content = builder.String()
+	return &openAIPassResult{assistantMessage: assistantCall}, nil
+}
+
+func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, servers map[string]string, call toolCallRequest) (openAIMessage, error) {
+	args, err := call.arguments()
+	if err != nil {
+		return openAIMessage{}, err
+	}
+
+	resultCh := make(chan ToolResult, 1)
+	tc := &ToolCall{
+		Server:      args.Server,
+		Method:      args.Method,
+		Description: servers[args.Server],
+		Arguments:   args.Arguments,
+		Respond: func(ctx context.Context, result ToolResult) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case resultCh <- result:
+				return nil
+			}
+		},
+	}
+
+	stream <- StreamChunk{Type: ChunkToolCall, ToolCall: tc}
+
+	var result ToolResult
+	select {
+	case <-ctx.Done():
+		return openAIMessage{}, ctx.Err()
+	case result = <-resultCh:
+	}
+
+	content := strings.TrimSpace(result.Content)
+	if content == "" {
+		content = "{}"
+	}
+
+	toolMessage := openAIMessage{
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: call.Call.ID,
+		Name:       call.Call.Function.Name,
+	}
+	return toolMessage, nil
 }
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	Name       string           `json:"name,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+}
+
+type openAIToolCall struct {
+	ID       string             `json:"id,omitempty"`
+	Type     string             `json:"type"`
+	Function openAIToolFunction `json:"function"`
+}
+
+type openAIToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type openAITool struct {
+	Type     string              `json:"type"`
+	Function openAIToolSignature `json:"function"`
+}
+
+type openAIToolSignature struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
 type openAIRequestPayload struct {
 	Model    string          `json:"model"`
 	Stream   bool            `json:"stream"`
 	Messages []openAIMessage `json:"messages"`
+	Tools    []openAITool    `json:"tools,omitempty"`
 }
 
 type openAIStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string                `json:"content"`
+			ToolCalls []openAIToolCallDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 }
 
-func buildOpenAIRequest(req ChatRequest) ([]byte, error) {
+type openAIToolCallDelta struct {
+	Index    int                `json:"index"`
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function openAIToolFunction `json:"function"`
+}
+
+func buildOpenAIMessages(req ChatRequest) []openAIMessage {
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if strings.TrimSpace(req.SystemPrompt) != "" {
 		messages = append(messages, openAIMessage{
@@ -179,12 +329,137 @@ func buildOpenAIRequest(req ChatRequest) ([]byte, error) {
 			Content: msg.Content,
 		})
 	}
-	payload := openAIRequestPayload{
-		Model:    req.Model,
-		Stream:   true,
-		Messages: messages,
+	return messages
+}
+
+func buildOpenAITools(servers []MCPServerTool) []openAITool {
+	if len(servers) == 0 {
+		return nil
 	}
-	return json.Marshal(payload)
+
+	var descBuilder strings.Builder
+	descBuilder.WriteString("Invoke a Model Context Protocol server.\nAvailable servers:\n")
+	for _, srv := range servers {
+		descBuilder.WriteString(" - ")
+		descBuilder.WriteString(srv.Name)
+		if d := strings.TrimSpace(srv.Description); d != "" {
+			descBuilder.WriteString(": ")
+			descBuilder.WriteString(d)
+		}
+		descBuilder.WriteString("\n")
+	}
+
+	parameters := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"server": map[string]any{
+				"type":        "string",
+				"description": "MCP server name to call.",
+			},
+			"method": map[string]any{
+				"type":        "string",
+				"description": "Method on the MCP server to invoke.",
+			},
+			"arguments": map[string]any{
+				"type":                 "object",
+				"description":          "Arbitrary JSON arguments passed to the MCP server.",
+				"additionalProperties": true,
+			},
+		},
+		"required":             []string{"server", "method"},
+		"additionalProperties": false,
+	}
+
+	return []openAITool{
+		{
+			Type: "function",
+			Function: openAIToolSignature{
+				Name:        "call_mcp",
+				Description: strings.TrimSpace(descBuilder.String()),
+				Parameters:  parameters,
+			},
+		},
+	}
+}
+
+type toolAccumulator struct {
+	items map[int]*openAIToolCall
+	order []int
+}
+
+func newToolAccumulator() *toolAccumulator {
+	return &toolAccumulator{
+		items: make(map[int]*openAIToolCall),
+	}
+}
+
+func (a *toolAccumulator) add(deltas []openAIToolCallDelta) {
+	for _, delta := range deltas {
+		entry, ok := a.items[delta.Index]
+		if !ok {
+			entry = &openAIToolCall{
+				ID:       delta.ID,
+				Type:     delta.Type,
+				Function: openAIToolFunction{Name: delta.Function.Name},
+			}
+			a.items[delta.Index] = entry
+			a.order = append(a.order, delta.Index)
+		}
+		if delta.Function.Name != "" {
+			entry.Function.Name = delta.Function.Name
+		}
+		entry.Function.Arguments += delta.Function.Arguments
+		if entry.ID == "" {
+			entry.ID = delta.ID
+		}
+	}
+}
+
+func (a *toolAccumulator) complete() []openAIToolCall {
+	if len(a.items) == 0 {
+		return nil
+	}
+	out := make([]openAIToolCall, 0, len(a.order))
+	for _, idx := range a.order {
+		out = append(out, *a.items[idx])
+	}
+	return out
+}
+
+func (a *toolAccumulator) requests() []toolCallRequest {
+	if len(a.items) == 0 {
+		return nil
+	}
+	out := make([]toolCallRequest, 0, len(a.order))
+	for _, idx := range a.order {
+		out = append(out, toolCallRequest{Call: *a.items[idx]})
+	}
+	return out
+}
+
+type toolCallRequest struct {
+	Call openAIToolCall
+}
+
+type toolCallArgs struct {
+	Server    string         `json:"server"`
+	Method    string         `json:"method"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+func (r toolCallRequest) arguments() (toolCallArgs, error) {
+	var args toolCallArgs
+	raw := strings.TrimSpace(r.Call.Function.Arguments)
+	if raw == "" {
+		raw = "{}"
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return toolCallArgs{}, fmt.Errorf("parse tool arguments: %w", err)
+	}
+	if args.Arguments == nil {
+		args.Arguments = map[string]any{}
+	}
+	return args, nil
 }
 
 type ollamaProvider struct {

@@ -48,6 +48,28 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 
+## MCP Server Configuration
+- Create the MCP directory if it does not exist: `mkdir -p ~/.humble-ai-cli/mcp_servers`.
+- Add one JSON file per server. Each file must set `enabled` to `true` for the CLI to load it. Minimal example saved as `~/.humble-ai-cli/mcp_servers/calculator.json`:
+```json
+{
+  "name": "calculator",
+  "description": "Adds or subtracts numbers for quick estimates.",
+  "enabled": true,
+  "command": "/usr/local/bin/mcp-calculator",
+  "args": ["--port=0"]
+}
+```
+- When the LLM requests a tool call, the CLI prints the server name and description, then asks `Call now? (Y/N)`. Enter `Y` to execute or `N` to cancel.
+- On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
+
+### Prompting Example
+```
+Please double-check the shipping fee by calling the MCP `shipping-calculator` tool with
+{ "weightKg": 1.8, "distanceKm": 120 } and summarize the total cost.
+```
+The assistant will pause at the confirmation step, run the MCP tool after approval, and then incorporate the tool result into its answer.
+
 ## Running the CLI
 From the project root:
 

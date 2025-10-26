@@ -98,6 +98,123 @@ func (p *recordingProvider) Requests() []llm.ChatRequest {
 	return out
 }
 
+type toolRequestProvider struct {
+	mu          sync.Mutex
+	requests    []llm.ChatRequest
+	call        llm.ToolCall
+	after       []llm.StreamChunk
+	onResponded func(llm.ToolResult)
+}
+
+func (p *toolRequestProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	call := p.call
+	after := append([]llm.StreamChunk(nil), p.after...)
+	onResponded := p.onResponded
+	p.mu.Unlock()
+
+	out := make(chan llm.StreamChunk)
+	go func() {
+		defer close(out)
+
+		resultCh := make(chan llm.ToolResult, 1)
+		previousResponder := call.Respond
+		call.Respond = func(ctx context.Context, result llm.ToolResult) error {
+			if previousResponder != nil {
+				if err := previousResponder(ctx, result); err != nil {
+					return err
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case resultCh <- result:
+				return nil
+			}
+		}
+
+		out <- llm.StreamChunk{Type: llm.ChunkThinking}
+		out <- llm.StreamChunk{Type: llm.ChunkToolCall, ToolCall: &call}
+
+		res := <-resultCh
+		if onResponded != nil {
+			onResponded(res)
+		}
+
+		for _, chunk := range after {
+			out <- chunk
+		}
+		out <- llm.StreamChunk{Type: llm.ChunkDone}
+	}()
+	return out, nil
+}
+
+func (p *toolRequestProvider) Requests() []llm.ChatRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]llm.ChatRequest, len(p.requests))
+	copy(out, p.requests)
+	return out
+}
+
+type recordedMCPCall struct {
+	Server    string
+	Method    string
+	Arguments map[string]any
+}
+
+type stubMCP struct {
+	mu            sync.Mutex
+	calls         []recordedMCPCall
+	description   app.MCPServer
+	servers       []app.MCPServer
+	response      llm.ToolResult
+	responseError error
+}
+
+func (s *stubMCP) Describe(server string) (app.MCPServer, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.description.Name != "" && s.description.Name == server {
+		return s.description, true
+	}
+	for _, srv := range s.servers {
+		if srv.Name == server {
+			return srv, true
+		}
+	}
+	return app.MCPServer{}, false
+}
+
+func (s *stubMCP) EnabledServers() []app.MCPServer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]app.MCPServer, len(s.servers))
+	copy(out, s.servers)
+	return out
+}
+
+func (s *stubMCP) Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call := recordedMCPCall{
+		Server:    server,
+		Method:    method,
+		Arguments: arguments,
+	}
+	s.calls = append(s.calls, call)
+	return s.response, s.responseError
+}
+
+func (s *stubMCP) Calls() []recordedMCPCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]recordedMCPCall, len(s.calls))
+	copy(out, s.calls)
+	return out
+}
+
 func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 	store := &stubStore{
 		cfg: config.Config{
@@ -416,6 +533,7 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+	_ = instance
 
 	if err := instance.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -427,6 +545,223 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 	}
 	if updated.ActiveModel != "model-b" {
 		t.Fatalf("expected active model to be model-b, got %s", updated.ActiveModel)
+	}
+}
+
+func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	systemPromptPath := filepath.Join(configDir, "system_prompt.txt")
+	if _, err := os.Stat(systemPromptPath); err == nil {
+		t.Fatalf("expected system prompt to be absent before test")
+	}
+
+	store := &stubStore{
+		cfg: config.Config{
+			Provider:    "openai",
+			ActiveModel: "stub-model",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+			},
+		},
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkThinking},
+			{Type: llm.ChunkToken, Content: "Hello"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExecutor := &stubMCP{
+		description: app.MCPServer{
+			Name:        "calculator",
+			Description: "Performs simple calculations",
+		},
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Performs simple calculations"},
+		},
+	}
+
+	input := strings.NewReader("Hi\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExecutor,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	_ = instance
+
+	if _, err := os.Stat(systemPromptPath); err != nil {
+		t.Fatalf("expected system prompt to be created, got error: %v", err)
+	}
+
+	data, err := os.ReadFile(systemPromptPath)
+	if err != nil {
+		t.Fatalf("failed to read system prompt: %v", err)
+	}
+
+	content := string(bytes.TrimSpace(data))
+	if !strings.Contains(content, "MCP server tooling") {
+		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
+	}
+
+	// Running once should not overwrite existing content.
+	custom := []byte("custom prompt")
+	if err := os.WriteFile(systemPromptPath, custom, 0o644); err != nil {
+		t.Fatalf("failed to write custom prompt: %v", err)
+	}
+
+	inst2, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() second time error = %v", err)
+	}
+	_ = inst2
+
+	after, err := os.ReadFile(systemPromptPath)
+	if err != nil {
+		t.Fatalf("failed to read prompt after second init: %v", err)
+	}
+	if !bytes.Equal(after, custom) {
+		t.Fatalf("expected prompt to remain unchanged on subsequent init")
+	}
+}
+
+func TestAppHandlesMCPToolRequests(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	mcpDir := filepath.Join(configDir, "mcp_servers")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		t.Fatalf("failed to create mcp directory: %v", err)
+	}
+
+	serverConfig := map[string]any{
+		"name":        "calculator",
+		"description": "Adds two numbers for you.",
+		"enabled":     true,
+	}
+	raw, err := json.MarshalIndent(serverConfig, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal server config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mcpDir, "calculator.json"), append(raw, '\n'), 0o644); err != nil {
+		t.Fatalf("failed to write server config: %v", err)
+	}
+
+	store := &stubStore{
+		cfg: config.Config{
+			Provider:    "openai",
+			ActiveModel: "stub-model",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx"},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server:      "calculator",
+			Method:      "add",
+			Description: "Add the provided numbers.",
+			Arguments: map[string]any{
+				"a": float64(2),
+				"b": float64(3),
+			},
+		},
+		after: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Final answer: 5"},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		description: app.MCPServer{
+			Name:        "calculator",
+			Description: "Adds numbers via MCP.",
+		},
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Adds numbers via MCP."},
+		},
+		response: llm.ToolResult{
+			Content: "5",
+		},
+	}
+
+	input := strings.NewReader("Please add\nY\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.Content != "5" {
+			t.Fatalf("expected provider to receive tool result '5', got %q", res.Content)
+		}
+	default:
+		t.Fatalf("expected provider to receive tool result")
+	}
+
+	calls := mcpExec.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 MCP call, got %d", len(calls))
+	}
+	call := calls[0]
+	if call.Server != "calculator" || call.Method != "add" {
+		t.Fatalf("unexpected call: %#v", call)
+	}
+	if call.Arguments["a"] != float64(2) || call.Arguments["b"] != float64(3) {
+		t.Fatalf("unexpected arguments: %#v", call.Arguments)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "MCP server calculator") {
+		t.Fatalf("expected output to describe MCP server, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Final answer: 5") {
+		t.Fatalf("expected final answer to be printed, got:\n%s", got)
 	}
 }
 
