@@ -836,17 +836,23 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 	}
 	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
-	description := strings.TrimSpace(call.Description)
-	if description == "" {
-		if fnDesc := strings.TrimSpace(a.functionDescription(call.Server, call.Method)); fnDesc != "" {
-			description = fnDesc
+	fmt.Fprintln(a.output, "\nMCP tool call")
+	fmt.Fprintf(a.output, "Server: %s\n", call.Server)
+	fmt.Fprintf(a.output, "Tool: %s\n", call.Method)
+	fmt.Fprintln(a.output, "Arguments:")
+
+	keys := make([]string, 0, len(call.Arguments))
+	for key := range call.Arguments {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	if len(keys) == 0 {
+		fmt.Fprintln(a.output, "  (none)")
+	} else {
+		for _, key := range keys {
+			fmt.Fprintf(a.output, "  %s: %s\n", key, formatToolArgument(call.Arguments[key]))
 		}
 	}
-	if description == "" {
-		description = "No description provided."
-	}
-
-	fmt.Fprintf(a.output, "\nMCP tool %s: %s\n", call.Method, description)
 
 	for {
 		fmt.Fprint(a.output, "Call now? (Y/N): ")
@@ -891,6 +897,26 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 		default:
 			fmt.Fprintln(a.output, "Please answer with Y or N.")
 		}
+	}
+}
+
+func formatToolArgument(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case json.Number:
+		return v.String()
+	case float64, float32, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64, bool:
+		return fmt.Sprint(v)
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(data)
 	}
 }
 
