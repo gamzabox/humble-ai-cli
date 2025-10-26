@@ -801,8 +801,8 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 	}
 
 	got := output.String()
-	if !strings.Contains(got, "MCP server calculator") {
-		t.Fatalf("expected output to describe MCP server, got:\n%s", got)
+	if !strings.Contains(got, "MCP tool add") {
+		t.Fatalf("expected output to describe MCP tool, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Final answer: 5") {
 		t.Fatalf("expected final answer to be printed, got:\n%s", got)

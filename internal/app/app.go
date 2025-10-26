@@ -843,19 +843,10 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 		}
 	}
 	if description == "" {
-		if srv, ok := a.mcpServers[call.Server]; ok {
-			description = strings.TrimSpace(srv.Description)
-		} else if a.mcp != nil {
-			if srv, ok := a.mcp.Describe(call.Server); ok {
-				description = strings.TrimSpace(srv.Description)
-			}
-		}
-	}
-	if description == "" {
 		description = "No description provided."
 	}
 
-	fmt.Fprintf(a.output, "\nMCP server %s requested: %s\n", call.Server, description)
+	fmt.Fprintf(a.output, "\nMCP tool %s: %s\n", call.Method, description)
 
 	for {
 		fmt.Fprint(a.output, "Call now? (Y/N): ")
