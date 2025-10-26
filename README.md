@@ -43,7 +43,8 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "provider": "ollama",
       "baseUrl": "http://localhost:11434"
     }
-  ]
+  ],
+  "logLevel": "debug"
 }
 ```
 
