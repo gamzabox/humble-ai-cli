@@ -459,21 +459,40 @@ type ollamaProvider struct {
 type ollamaMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	Tool    string `json:"tool,omitempty"`
 }
 
 type ollamaRequestPayload struct {
 	Model    string          `json:"model"`
 	Stream   bool            `json:"stream"`
 	Messages []ollamaMessage `json:"messages"`
+	Tools    []ollamaTool    `json:"tools,omitempty"`
 }
 
 type ollamaStreamChunk struct {
 	Done    bool `json:"done"`
 	Message struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+		Role    string          `json:"role"`
+		Content string          `json:"content"`
+		Tool    *ollamaToolCall `json:"tool,omitempty"`
 	} `json:"message"`
 	Error string `json:"error"`
+}
+
+type ollamaTool struct {
+	Type     string             `json:"type"`
+	Function ollamaToolFunction `json:"function"`
+}
+
+type ollamaToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+type ollamaToolCall struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
@@ -522,6 +541,11 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 				continue
 			}
 
+			if chunk.Message.Tool != nil {
+				stream <- StreamChunk{Type: ChunkToolCall, ToolCall: translateOllamaToolCall(chunk.Message.Tool)}
+				continue
+			}
+
 			if chunk.Message.Content != "" {
 				stream <- StreamChunk{Type: ChunkToken, Content: chunk.Message.Content}
 			}
@@ -555,7 +579,56 @@ func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 		Stream:   true,
 		Messages: messages,
 	}
+	if len(req.Tools) > 0 {
+		payload.Tools = buildOllamaTools(req.Tools)
+	}
 	return json.Marshal(payload)
+}
+
+func buildOllamaTools(defs []ToolDefinition) []ollamaTool {
+	out := make([]ollamaTool, 0, len(defs))
+	for _, def := range defs {
+		params := cloneAnyMap(def.Parameters)
+		if params == nil {
+			params = defaultToolSchema()
+		}
+		out = append(out, ollamaTool{
+			Type: "function",
+			Function: ollamaToolFunction{
+				Name:        def.Name,
+				Description: def.Description,
+				Parameters:  params,
+			},
+		})
+	}
+	return out
+}
+
+func translateOllamaToolCall(call *ollamaToolCall) *ToolCall {
+	if call == nil {
+		return nil
+	}
+	return &ToolCall{
+		Server:    extractServerFromTool(call.Name),
+		Method:    extractMethodFromTool(call.Name),
+		Arguments: call.Arguments,
+	}
+}
+
+func extractServerFromTool(name string) string {
+	parts := strings.SplitN(name, "__", 2)
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return ""
+}
+
+func extractMethodFromTool(name string) string {
+	parts := strings.SplitN(name, "__", 2)
+	if len(parts) == 2 {
+		return parts[1]
+	}
+	return name
 }
 
 // Timeout returns a copy of the factory with a custom timeout.

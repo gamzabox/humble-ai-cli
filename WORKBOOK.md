@@ -29,4 +29,7 @@
   - system_prompt.txt 에는 MCP server 호출을 위한 tooling 정의가 포함되어야 함.
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
-
+# Ollama API tooling 지원
+- Ollama 에서도 MCP 를 사용 할 수 있도록 API 호출 시 tool 설정 추가
+- Ollama chat api guide 참고: https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
+- API request/response 로그 추가
