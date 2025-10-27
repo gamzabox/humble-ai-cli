@@ -48,10 +48,12 @@
 
 ## MCP Server 호출 기능
 - MCP Server 설정은 $HOME/.humble-ai-cli/mcp_servers 디렉토리에 각 mcp server 에 대한 json 설정 파일로 관리됨
-  - MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음
+- MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음
 - LLM 이 필요시 MCP Server 호출을 요청 할 수 있고 humble-ai-cli 를 MCP Server 를 호출하고 결과를 LLM 에게 전달 함
 - 정확한 답변을 위해 LLM 은 MCP Server 를 여러번 호출 할 수 있음
+- MCP Server 는 서버별로 단일 MCP 세션을 유지하며, 세션이 종료되지 않았다면 재사용하고 종료된 경우에만 재연결 할 것
 - MCP Server 호출 전에는 사용자 에게 어떤 mcp 를 호출 하는지 설명하고 Y/N 입력을 요청하고 Y 입력시 호출하고 N 입력시 작업을 중단 함.
+- 프로그램 종료 시 활성화 되어 있는 모든 MCP 세션을 정상적으로 close 할 것
 
 ## Log file
 - $HOME/.humble-ai-cli/logs 디렉토리에 날짜별 로그파일을 생성한다.

@@ -37,11 +37,15 @@ type serverConfig struct {
 	Args        []string `json:"args,omitempty"`
 }
 
+type sessionDialer func(context.Context, serverConfig) (*sessionHolder, error)
+
 // Manager loads server configurations and executes MCP tool calls.
 type Manager struct {
 	home    string
 	mu      sync.Mutex
 	servers map[string]serverConfig
+	sessions map[string]*sessionHolder
+	connect  sessionDialer
 }
 
 // NewManager creates a Manager rooted at the provided home directory.
@@ -51,8 +55,10 @@ func NewManager(home string) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{
-		home:    home,
-		servers: servers,
+		home:     home,
+		servers:  servers,
+		sessions: make(map[string]*sessionHolder),
+		connect:  defaultSessionDialer,
 	}, nil
 }
 
@@ -89,71 +95,149 @@ func (m *Manager) Describe(name string) (Server, bool) {
 
 // Call executes the given tool on the specified server.
 func (m *Manager) Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error) {
-	m.mu.Lock()
-	cfg, ok := m.servers[server]
-	m.mu.Unlock()
-	if !ok || !cfg.Enabled {
-		return llm.ToolResult{}, fmt.Errorf("unknown MCP server %q", server)
-	}
-	if strings.TrimSpace(cfg.Command) == "" {
-		return llm.ToolResult{}, fmt.Errorf("mcp server %q has no command configured", server)
-	}
-
-	client := sdk.NewClient(&sdk.Implementation{
-		Name:    "humble-ai-cli",
-		Version: "0.1.0",
-	}, nil)
-
-	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	transport := &sdk.CommandTransport{Command: cmd}
-	session, err := client.Connect(ctx, transport, nil)
-	if err != nil {
-		return llm.ToolResult{}, fmt.Errorf("connect MCP server %q: %w", server, err)
-	}
-	defer session.Close()
-
 	params := &sdk.CallToolParams{
 		Name:      method,
 		Arguments: arguments,
 	}
-	result, err := session.CallTool(ctx, params)
-	if err != nil {
-		return llm.ToolResult{}, fmt.Errorf("call tool %q on server %q: %w", method, server, err)
+
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		holder, err := m.ensureSession(ctx, server)
+		if err != nil {
+			return llm.ToolResult{}, err
+		}
+
+		result, err := holder.session.CallTool(ctx, params)
+		if err == nil {
+			return convertResult(result)
+		}
+
+		lastErr = err
+		if !m.handleSessionError(server, holder, err) {
+			return llm.ToolResult{}, fmt.Errorf("call tool %q on server %q: %w", method, server, err)
+		}
 	}
-	return convertResult(result)
+
+	return llm.ToolResult{}, fmt.Errorf("call tool %q on server %q: %w", method, server, lastErr)
 }
 
 // Tools lists functions provided by the specified server.
 func (m *Manager) Tools(ctx context.Context, server string) ([]Function, error) {
+	var (
+		lastErr error
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		holder, err := m.ensureSession(ctx, server)
+		if err != nil {
+			return nil, err
+		}
+
+		tools, err := m.fetchTools(ctx, holder.session)
+		if err == nil {
+			return tools, nil
+		}
+
+		lastErr = err
+		if !m.handleSessionError(server, holder, err) {
+			return nil, fmt.Errorf("list tools on server %q: %w", server, err)
+		}
+	}
+	return nil, fmt.Errorf("list tools on server %q: %w", server, lastErr)
+}
+
+// Close shuts down all cached MCP sessions.
+func (m *Manager) Close() error {
 	m.mu.Lock()
-	cfg, ok := m.servers[server]
+	sessions := make([]*sessionHolder, 0, len(m.sessions))
+	for name, holder := range m.sessions {
+		if holder != nil {
+			sessions = append(sessions, holder)
+		}
+		delete(m.sessions, name)
+	}
 	m.mu.Unlock()
+
+	var errs []error
+	for _, holder := range sessions {
+		if err := holder.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func (m *Manager) ensureSession(ctx context.Context, name string) (*sessionHolder, error) {
+	m.mu.Lock()
+	cfg, ok := m.servers[name]
 	if !ok || !cfg.Enabled {
-		return nil, fmt.Errorf("unknown MCP server %q", server)
+		m.mu.Unlock()
+		return nil, fmt.Errorf("unknown MCP server %q", name)
 	}
 	if strings.TrimSpace(cfg.Command) == "" {
-		return nil, fmt.Errorf("mcp server %q has no command configured", server)
+		m.mu.Unlock()
+		return nil, fmt.Errorf("mcp server %q has no command configured", name)
 	}
 
-	client := sdk.NewClient(&sdk.Implementation{
-		Name:    "humble-ai-cli",
-		Version: "0.1.0",
-	}, nil)
+	holder := m.sessions[name]
+	var stale *sessionHolder
+	if holder != nil && holder.alive() {
+		m.mu.Unlock()
+		return holder, nil
+	}
+	if holder != nil {
+		delete(m.sessions, name)
+		stale = holder
+	}
+	dial := m.connect
+	m.mu.Unlock()
 
-	cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-	transport := &sdk.CommandTransport{Command: cmd}
-	session, err := client.Connect(ctx, transport, nil)
+	if stale != nil {
+		_ = stale.Close()
+	}
+
+	newHolder, err := dial(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("connect MCP server %q: %w", server, err)
+		return nil, fmt.Errorf("connect MCP server %q: %w", name, err)
 	}
-	defer session.Close()
 
+	m.mu.Lock()
+	if existing := m.sessions[name]; existing != nil && existing.alive() {
+		m.mu.Unlock()
+		_ = newHolder.Close()
+		return existing, nil
+	}
+	m.sessions[name] = newHolder
+	m.mu.Unlock()
+	return newHolder, nil
+}
+
+func (m *Manager) handleSessionError(server string, holder *sessionHolder, err error) bool {
+	if !errors.Is(err, sdk.ErrConnectionClosed) {
+		return false
+	}
+	_ = holder.Close()
+	m.removeSession(server, holder)
+	return true
+}
+
+func (m *Manager) removeSession(server string, holder *sessionHolder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current, ok := m.sessions[server]; ok && current == holder {
+		delete(m.sessions, server)
+	}
+}
+
+func (m *Manager) fetchTools(ctx context.Context, session *sdk.ClientSession) ([]Function, error) {
 	params := &sdk.ListToolsParams{}
 	var out []Function
 	for {
 		res, err := session.ListTools(ctx, params)
 		if err != nil {
-			return nil, fmt.Errorf("list tools on server %q: %w", server, err)
+			return nil, err
 		}
 		for _, tool := range res.Tools {
 			if tool == nil {
@@ -171,6 +255,86 @@ func (m *Manager) Tools(ctx context.Context, server string) ([]Function, error) 
 		params = &sdk.ListToolsParams{Cursor: res.NextCursor}
 	}
 	return out, nil
+}
+
+func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder, error) {
+	client := sdk.NewClient(&sdk.Implementation{
+		Name:    "humble-ai-cli",
+		Version: "0.1.0",
+	}, nil)
+
+	cmd := exec.Command(cfg.Command, cfg.Args...)
+	transport := &sdk.CommandTransport{Command: cmd}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+		return nil, err
+	}
+	return newSessionHolder(session, nil), nil
+}
+
+type sessionHolder struct {
+	session    *sdk.ClientSession
+	extraClose func() error
+
+	once sync.Once
+	done chan struct{}
+
+	mu  sync.Mutex
+	err error
+}
+
+func newSessionHolder(session *sdk.ClientSession, extraClose func() error) *sessionHolder {
+	holder := &sessionHolder{
+		session:    session,
+		extraClose: extraClose,
+		done:       make(chan struct{}),
+	}
+
+	go func() {
+		err := session.Wait()
+		holder.recordClose(err)
+	}()
+
+	return holder
+}
+
+func (h *sessionHolder) Close() error {
+	err := h.session.Close()
+	h.recordClose(err)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.err
+}
+
+func (h *sessionHolder) alive() bool {
+	select {
+	case <-h.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (h *sessionHolder) recordClose(sessionErr error) {
+	var extraErr error
+	h.once.Do(func() {
+		if h.extraClose != nil {
+			extraErr = h.extraClose()
+		}
+		close(h.done)
+	})
+	combined := errors.Join(sessionErr, extraErr)
+	if combined != nil {
+		h.mu.Lock()
+		if h.err == nil {
+			h.err = combined
+		}
+		h.mu.Unlock()
+	}
 }
 
 func normalizeSchema(input any) map[string]any {

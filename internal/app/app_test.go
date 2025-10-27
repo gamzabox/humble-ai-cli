@@ -246,6 +246,8 @@ func (s *stubMCP) Tools(ctx context.Context, server string) ([]app.MCPFunction, 
 	return out, nil
 }
 
+func (s *stubMCP) Close() error { return nil }
+
 func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 	store := &stubStore{
 		cfg: config.Config{

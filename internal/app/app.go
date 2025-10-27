@@ -51,6 +51,7 @@ type MCPExecutor interface {
 	Describe(server string) (MCPServer, bool)
 	Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error)
 	Tools(ctx context.Context, server string) ([]MCPFunction, error)
+	Close() error
 }
 
 // Options configures App creation.
@@ -200,10 +201,12 @@ func New(opts Options) (*App, error) {
 	app.setupSignals(opts.Interrupts)
 
 	if err := app.loadMCPFunctions(context.Background()); err != nil {
+		_ = app.mcp.Close()
 		return nil, err
 	}
 
 	if err := app.initializeSystemPrompt(); err != nil {
+		_ = app.mcp.Close()
 		return nil, err
 	}
 
@@ -358,6 +361,11 @@ func (a *App) Run(ctx context.Context) error {
 	defer func() {
 		if a.stopSignal != nil {
 			a.stopSignal()
+		}
+	}()
+	defer func() {
+		if err := a.mcp.Close(); err != nil && a.logger != nil {
+			a.logger.Debugf("close MCP sessions: %v", err)
 		}
 	}()
 
