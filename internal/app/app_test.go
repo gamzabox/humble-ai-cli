@@ -335,7 +335,8 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 	provider := &recordingProvider{
 		chunks: []llm.StreamChunk{
-			{Type: llm.ChunkThinking},
+			{Type: llm.ChunkThinking, Content: "Analyzing the prompt"},
+			{Type: llm.ChunkThinking, Content: "...checking context"},
 			{Type: llm.ChunkToken, Content: "Hello"},
 			{Type: llm.ChunkToken, Content: " "},
 			{Type: llm.ChunkToken, Content: "World"},
@@ -370,14 +371,36 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, phrase := range []string{
-		"Waiting for response...",
-		"Thinking...",
-		"Hello World",
-	} {
-		if !strings.Contains(got, phrase) {
-			t.Fatalf("expected output to contain %q, got:\n%s", phrase, got)
-		}
+	if !strings.Contains(got, "Waiting for response...") {
+		t.Fatalf("expected waiting indicator, got:\n%s", got)
+	}
+
+	startIdx := strings.Index(got, "<<< Thinking >>>")
+	if startIdx == -1 {
+		t.Fatalf("missing thinking start marker in output:\n%s", got)
+	}
+
+	reasoningIdx := strings.Index(got, "Analyzing the prompt...checking context")
+	if reasoningIdx == -1 {
+		t.Fatalf("expected concatenated thinking content in output:\n%s", got)
+	}
+	if reasoningIdx < startIdx {
+		t.Fatalf("thinking content appears before start marker:\n%s", got)
+	}
+	endIdx := strings.Index(got, "<<< End Thinking >>>")
+	if endIdx == -1 {
+		t.Fatalf("missing thinking end marker in output:\n%s", got)
+	}
+	if endIdx < reasoningIdx {
+		t.Fatalf("thinking end marker appears before content:\n%s", got)
+	}
+
+	answerIdx := strings.Index(got, "Hello World")
+	if answerIdx == -1 {
+		t.Fatalf("expected answer content in output:\n%s", got)
+	}
+	if answerIdx < endIdx {
+		t.Fatalf("answer content appears before thinking finished:\n%s", got)
 	}
 
 	historyFiles, err := filepath.Glob(filepath.Join(sessionDir, "*.json"))

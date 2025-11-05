@@ -177,6 +177,15 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 		}
 
 		for _, choice := range chunk.Choices {
+			if choice.Delta.Reasoning != nil {
+				for _, token := range choice.Delta.Reasoning.Tokens {
+					if token.Token == "" {
+						continue
+					}
+					stream <- StreamChunk{Type: ChunkThinking, Content: token.Token}
+				}
+			}
+
 			if choice.Delta.Content != "" {
 				stream <- StreamChunk{Type: ChunkToken, Content: choice.Delta.Content}
 				builder.WriteString(choice.Delta.Content)
@@ -298,12 +307,23 @@ type openAIRequestPayload struct {
 
 type openAIStreamChunk struct {
 	Choices []struct {
-		Delta struct {
-			Content   string                `json:"content"`
-			ToolCalls []openAIToolCallDelta `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason"`
+		Delta        openAIDelta `json:"delta"`
+		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
+}
+
+type openAIDelta struct {
+	Content   string                `json:"content"`
+	ToolCalls []openAIToolCallDelta `json:"tool_calls"`
+	Reasoning *openAIReasoning      `json:"reasoning"`
+}
+
+type openAIReasoning struct {
+	Tokens []openAIReasoningToken `json:"tokens"`
+}
+
+type openAIReasoningToken struct {
+	Token string `json:"token"`
 }
 
 type openAIToolCallDelta struct {

@@ -246,3 +246,100 @@ finished:
 		t.Fatalf("expected tool role message in second request")
 	}
 }
+
+func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		r.Body.Close()
+		if !strings.Contains(string(body), `"stream":true`) {
+			t.Fatalf("expected streaming request body, got: %s", string(body))
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"tokens":[{"token":"Analyzing"}]}}}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"tokens":[{"token":" context"}]}}}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, `data: {"choices":[{"delta":{"content":"Answer"}}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "gpt-4.1",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		BaseURL:  server.URL,
+	}
+
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, ChatRequest{
+		Model:  model.Name,
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expectChunk := func() StreamChunk {
+		t.Helper()
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed unexpectedly")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != "" {
+		t.Fatalf("expected initial thinking chunk without content, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != "Analyzing" {
+		t.Fatalf("expected first reasoning token, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != " context" {
+		t.Fatalf("expected second reasoning token, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkToken || chunk.Content != "Answer" {
+		t.Fatalf("expected answer token, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkDone {
+		t.Fatalf("expected done chunk, got %#v", chunk)
+	}
+}

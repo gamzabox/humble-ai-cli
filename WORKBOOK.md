@@ -76,7 +76,12 @@ curl http://localhost:11434/api/chat -d '{
 - 한국어, 중국어, 일본어 같은 언어 입력시에도 문제 없이 동작 해야 함
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
-# TODO: MCP Session 재사용 기능 추가
+# MCP Session 재사용 기능 추가
 - 특정 MCP Server 에 대한 최초의 Tool calling 으로 Session 이 생성되면 이후 동일한 MCP Server 에 대한 Tool calling 시 session 이 살아 있는지 확인하고 살아 있을경우 재 사용 하고, close 되었을 경우 재 생성 하도록 수정.
 - 프로그램 종료 시 모든 mcp session 을 close 할 것.
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Thinking message 를 출력 하는 기능 추가
+- LLM 으로 수신하는 Thinking 메시지를 streaming 할것
+- Thinking 메시지 임을 인지 할 수 있도록 시작과 끝을 구분 할 것
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

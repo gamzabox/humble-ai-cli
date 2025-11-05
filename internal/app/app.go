@@ -578,13 +578,39 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	}
 
 	var assistant strings.Builder
-	thinkingShown := false
+	thinking := struct {
+		active         bool
+		needsLineBreak bool
+	}{
+		active:         false,
+		needsLineBreak: false,
+	}
+	openThinking := func() {
+		if thinking.active {
+			return
+		}
+		fmt.Fprintln(a.output, "<<< Thinking >>>")
+		thinking.active = true
+		thinking.needsLineBreak = false
+	}
+	closeThinking := func() {
+		if !thinking.active {
+			return
+		}
+		if thinking.needsLineBreak {
+			fmt.Fprintln(a.output)
+		}
+		fmt.Fprintln(a.output, "<<< End Thinking >>>")
+		thinking.active = false
+		thinking.needsLineBreak = false
+	}
 	errored := false
 	cancelledByUser := false
 
 loop:
 	for chunk := range stream {
 		if chunk.Err != nil {
+			closeThinking()
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
 			a.logError("LLM stream error: %v", chunk.Err)
 			errored = true
@@ -593,18 +619,21 @@ loop:
 
 		switch chunk.Type {
 		case llm.ChunkThinking:
-			if !thinkingShown {
-				fmt.Fprintln(a.output, "Thinking...")
-				thinkingShown = true
+			openThinking()
+			if chunk.Content != "" {
+				fmt.Fprint(a.output, chunk.Content)
+				if strings.HasSuffix(chunk.Content, "\n") {
+					thinking.needsLineBreak = false
+				} else {
+					thinking.needsLineBreak = true
+				}
 			}
 		case llm.ChunkToken:
-			if !thinkingShown {
-				fmt.Fprintln(a.output, "Thinking...")
-				thinkingShown = true
-			}
+			closeThinking()
 			fmt.Fprint(a.output, chunk.Content)
 			assistant.WriteString(chunk.Content)
 		case llm.ChunkToolCall:
+			closeThinking()
 			if chunk.ToolCall == nil {
 				continue
 			}
@@ -620,13 +649,17 @@ loop:
 				break loop
 			}
 		case llm.ChunkError:
+			closeThinking()
 			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
 			a.logError("LLM stream error chunk: %v", chunk.Err)
 			errored = true
 		case llm.ChunkDone:
+			closeThinking()
 			// finished
 		}
 	}
+
+	closeThinking()
 
 	if cancelledByUser {
 		a.logDebug("LLM response cancelled by user")
