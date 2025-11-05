@@ -10,6 +10,29 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// Logger allows providers to emit debug logs without depending on a concrete implementation.
+type Logger interface {
+	Debugf(format string, args ...any)
+}
+
+type contextKeyLogger struct{}
+
+// WithLogger attaches a debug logger to the context so providers can emit request/response logs.
+func WithLogger(ctx context.Context, logger Logger) context.Context {
+	if logger == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, contextKeyLogger{}, logger)
+}
+
+// LoggerFromContext retrieves a logger that was previously attached via WithLogger.
+func LoggerFromContext(ctx context.Context) Logger {
+	if v, ok := ctx.Value(contextKeyLogger{}).(Logger); ok {
+		return v
+	}
+	return nil
+}
+
 // ChatRequest describes a LLM chat completion request.
 type ChatRequest struct {
 	Model        string           `json:"model"`

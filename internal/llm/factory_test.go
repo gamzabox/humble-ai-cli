@@ -3,10 +3,12 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -342,4 +344,227 @@ func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 	if chunk := expectChunk(); chunk.Type != ChunkDone {
 		t.Fatalf("expected done chunk, got %#v", chunk)
 	}
+}
+
+func TestOpenAIProviderStreamsReasoningContentVariants(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		defer r.Body.Close()
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"content":[{"type":"text","text":"Step 1"}]}}}]}`+"\n\n")
+		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"output_text":"\nConclusion."}}}]}`+"\n\n")
+		io.WriteString(w, `data: {"choices":[{"delta":{"content":"Final"}}]}`+"\n\n")
+		io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+		io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "gpt-4.1",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		BaseURL:  server.URL,
+	}
+
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, ChatRequest{Model: model.Name, Stream: true})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expect := func() StreamChunk {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed early")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "" {
+		t.Fatalf("expected initial thinking chunk, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Step 1" {
+		t.Fatalf("expected first reasoning content, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "\nConclusion." {
+		t.Fatalf("expected second reasoning content, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkToken || chunk.Content != "Final" {
+		t.Fatalf("expected final token, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkDone {
+		t.Fatalf("expected done chunk, got %#v", chunk)
+	}
+}
+
+func TestOpenAIProviderLogsFollowupRequestsForToolCalls(t *testing.T) {
+	t.Parallel()
+
+	var (
+		requestCount int
+		mu           sync.Mutex
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		mu.Lock()
+		requestCount++
+		current := requestCount
+		mu.Unlock()
+
+		defer r.Body.Close()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		switch current {
+		case 1:
+			io.WriteString(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"add","arguments":""}}]},"finish_reason":""}]}`+"\n\n")
+			io.WriteString(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"add","arguments":"{\"a\":1,\"b\":2}"}}]},"finish_reason":""}]}`+"\n\n")
+			io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
+			io.WriteString(w, "data: [DONE]\n\n")
+		case 2:
+			io.WriteString(w, `data: {"choices":[{"delta":{"content":"Result"}}]}`+"\n\n")
+			io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+			io.WriteString(w, "data: [DONE]\n\n")
+		default:
+			t.Fatalf("unexpected request number: %d", current)
+		}
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "gpt-tools",
+		Provider: "openai",
+		APIKey:   "sk-tool",
+		BaseURL:  server.URL,
+	}
+
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	logger := &recordingLogger{}
+	ctx, cancel := context.WithTimeout(WithLogger(context.Background(), logger), 5*time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, ChatRequest{
+		Model:  model.Name,
+		Stream: true,
+		Messages: []Message{
+			{Role: "user", Content: "Add two numbers"},
+		},
+		Tools: []ToolDefinition{
+			{
+				Name:        "add",
+				Description: "Add numbers",
+				Server:      "calculator",
+				Method:      "add",
+				Parameters: map[string]any{
+					"type": "object",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	var (
+		receivedResult bool
+	)
+
+	for chunk := range stream {
+		switch chunk.Type {
+		case ChunkThinking:
+			continue
+		case ChunkToolCall:
+			if chunk.ToolCall == nil {
+				t.Fatalf("missing tool call payload")
+			}
+			if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: `{"sum":3}`}); err != nil {
+				t.Fatalf("respond tool call: %v", err)
+			}
+		case ChunkToken:
+			if chunk.Content == "Result" {
+				receivedResult = true
+			}
+		case ChunkDone:
+			goto finished
+		case ChunkError:
+			t.Fatalf("unexpected error chunk: %v", chunk.Err)
+		default:
+			t.Fatalf("unexpected chunk type: %v", chunk.Type)
+		}
+	}
+
+finished:
+	if !receivedResult {
+		t.Fatalf("expected assistant tokens from follow-up request")
+	}
+
+	entries := logger.Entries()
+	requestLogs := 0
+	responseLogs := 0
+	hasToolPayload := false
+	for _, entry := range entries {
+		if strings.Contains(entry, "LLM request") {
+			requestLogs++
+			if strings.Contains(entry, `"role":"tool"`) {
+				hasToolPayload = true
+			}
+		}
+		if strings.Contains(entry, "LLM response") {
+			responseLogs++
+		}
+	}
+
+	if requestLogs < 2 {
+		t.Fatalf("expected at least two LLM request logs, got %d (entries=%v)", requestLogs, entries)
+	}
+	if responseLogs < 2 {
+		t.Fatalf("expected at least two LLM response logs, got %d (entries=%v)", responseLogs, entries)
+	}
+	if !hasToolPayload {
+		t.Fatalf("expected tool role payload in logs, entries=%v", entries)
+	}
+}
+
+type recordingLogger struct {
+	mu      sync.Mutex
+	entries []string
+}
+
+func (l *recordingLogger) Debugf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.entries = append(l.entries, fmt.Sprintf(format, args...))
+}
+
+func (l *recordingLogger) Entries() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]string, len(l.entries))
+	copy(out, l.entries)
+	return out
 }

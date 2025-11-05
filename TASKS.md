@@ -46,3 +46,11 @@
 - [x] Thinking 메시지 스트리밍 동작을 검증하는 테스트를 먼저 작성한다.
 - [x] Thinking 메시지 스트리밍 구현을 완료한다.
 - [x] 전체 테스트를 실행해 통과 여부를 확인한다. (`go test ./...`)
+- [x] OpenAI/Ollama reasoning payload 를 파싱해 실제 thinking 내용을 스트리밍 한다.
+- [x] reasoning 스트리밍 동작을 테스트로 검증한다.
+
+# Tool call 로그 보강
+- [x] Tool call 수행 시 LLM request 로그 누락 문제를 파악한다.
+- [x] Tool call 이후 LLM Request/Response 로그 기록을 검증하는 테스트를 추가한다.
+- [x] Tool call 이후 LLM Request/Response 로그가 남도록 구현을 보강한다.
+- [x] 전체 테스트를 실행해 통과 여부를 확인한다. (`go test ./...`)

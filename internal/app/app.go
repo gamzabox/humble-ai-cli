@@ -569,6 +569,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	}
 
 	reqCtx, cancel := context.WithCancel(ctx)
+	reqCtx = llm.WithLogger(reqCtx, a.logger)
 	a.enterResponding(cancel)
 	defer a.leaveResponding()
 

@@ -128,6 +128,11 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 		return nil, err
 	}
 
+	logger := LoggerFromContext(ctx)
+	if logger != nil {
+		logger.Debugf("LLM request: %s", string(payload))
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -158,6 +163,17 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 		assistantCall = openAIMessage{Role: "assistant"}
 	)
 
+	logResponse := func(toolCalls []toolCallRequest) {
+		if logger == nil {
+			return
+		}
+		if len(toolCalls) > 0 {
+			logger.Debugf("LLM response (tool_calls): content=%q toolCalls=%d", assistantCall.Content, len(toolCalls))
+			return
+		}
+		logger.Debugf("LLM response: %s", assistantCall.Content)
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -177,12 +193,9 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 		}
 
 		for _, choice := range chunk.Choices {
-			if choice.Delta.Reasoning != nil {
-				for _, token := range choice.Delta.Reasoning.Tokens {
-					if token.Token == "" {
-						continue
-					}
-					stream <- StreamChunk{Type: ChunkThinking, Content: token.Token}
+			if len(choice.Delta.Reasoning) > 0 {
+				for _, text := range extractReasoningSegments(choice.Delta.Reasoning) {
+					stream <- StreamChunk{Type: ChunkThinking, Content: text}
 				}
 			}
 
@@ -197,14 +210,17 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 
 			if choice.FinishReason == "stop" {
 				assistantCall.Content = builder.String()
+				logResponse(nil)
 				return &openAIPassResult{assistantMessage: assistantCall}, nil
 			}
 			if choice.FinishReason == "tool_calls" {
 				assistantCall.Content = builder.String()
 				assistantCall.ToolCalls = accumulator.complete()
+				toolRequests := accumulator.requests()
+				logResponse(toolRequests)
 				return &openAIPassResult{
 					assistantMessage: assistantCall,
-					toolCalls:        accumulator.requests(),
+					toolCalls:        toolRequests,
 				}, nil
 			}
 		}
@@ -215,6 +231,7 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	}
 
 	assistantCall.Content = builder.String()
+	logResponse(nil)
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
 
@@ -315,15 +332,7 @@ type openAIStreamChunk struct {
 type openAIDelta struct {
 	Content   string                `json:"content"`
 	ToolCalls []openAIToolCallDelta `json:"tool_calls"`
-	Reasoning *openAIReasoning      `json:"reasoning"`
-}
-
-type openAIReasoning struct {
-	Tokens []openAIReasoningToken `json:"tokens"`
-}
-
-type openAIReasoningToken struct {
-	Token string `json:"token"`
+	Reasoning json.RawMessage       `json:"reasoning"`
 }
 
 type openAIToolCallDelta struct {
@@ -509,8 +518,10 @@ type ollamaStreamChunk struct {
 		Role      string              `json:"role"`
 		Content   string              `json:"content"`
 		ToolCalls []ollamaRawToolCall `json:"tool_calls"`
+		Reasoning json.RawMessage     `json:"reasoning"`
 	} `json:"message"`
-	Error string `json:"error"`
+	Reasoning json.RawMessage `json:"reasoning"`
+	Error     string          `json:"error"`
 }
 
 type ollamaOutgoingToolCall struct {
@@ -628,6 +639,11 @@ func (p *ollamaProvider) streamOnce(
 		return nil, err
 	}
 
+	logger := LoggerFromContext(ctx)
+	if logger != nil {
+		logger.Debugf("LLM request: %s", string(payload))
+	}
+
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -677,6 +693,17 @@ func (p *ollamaProvider) streamOnce(
 			continue
 		}
 
+		if len(chunk.Message.Reasoning) > 0 {
+			for _, text := range extractReasoningSegments(chunk.Message.Reasoning) {
+				stream <- StreamChunk{Type: ChunkThinking, Content: text}
+			}
+		}
+		if len(chunk.Reasoning) > 0 {
+			for _, text := range extractReasoningSegments(chunk.Reasoning) {
+				stream <- StreamChunk{Type: ChunkThinking, Content: text}
+			}
+		}
+
 		if chunk.Message.Content != "" {
 			stream <- StreamChunk{Type: ChunkToken, Content: chunk.Message.Content}
 			builder.WriteString(chunk.Message.Content)
@@ -695,7 +722,18 @@ func (p *ollamaProvider) streamOnce(
 	}
 
 	assistant.Content = builder.String()
+	logResponse := func(toolCallCount int) {
+		if logger == nil {
+			return
+		}
+		if toolCallCount > 0 {
+			logger.Debugf("LLM response (tool_calls): content=%q toolCalls=%d", assistant.Content, toolCallCount)
+			return
+		}
+		logger.Debugf("LLM response: %s", assistant.Content)
+	}
 	if len(toolCalls) == 0 {
+		logResponse(0)
 		return &ollamaPassResult{assistantMessage: assistant}, nil
 	}
 
@@ -704,6 +742,7 @@ func (p *ollamaProvider) streamOnce(
 	for _, call := range toolCalls {
 		requests = append(requests, toolCallRequest{Call: call})
 	}
+	logResponse(len(toolCalls))
 
 	return &ollamaPassResult{
 		assistantMessage: assistant,
@@ -830,6 +869,41 @@ func convertToOllamaOutgoingCalls(calls []openAIToolCall) []ollamaOutgoingToolCa
 		})
 	}
 	return out
+}
+
+func extractReasoningSegments(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var data any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil
+	}
+
+	var out []string
+	collectReasoningStrings(&out, data)
+	return out
+}
+
+func collectReasoningStrings(out *[]string, value any) {
+	switch v := value.(type) {
+	case string:
+		if v != "" {
+			*out = append(*out, v)
+		}
+	case []any:
+		for _, item := range v {
+			collectReasoningStrings(out, item)
+		}
+	case map[string]any:
+		keys := []string{"text", "token", "tokens", "thought", "output_text", "content", "value", "explanation", "steps"}
+		for _, key := range keys {
+			if val, ok := v[key]; ok {
+				collectReasoningStrings(out, val)
+			}
+		}
+	}
 }
 
 // Timeout returns a copy of the factory with a custom timeout.
