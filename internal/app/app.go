@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -72,9 +71,9 @@ type Options struct {
 type App struct {
 	store       config.Store
 	factory     ProviderFactory
-	reader      *bufio.Reader
 	output      io.Writer
 	errOutput   io.Writer
+	lineReader  lineReader
 	historyRoot string
 	homeDir     string
 	clock       Clock
@@ -183,7 +182,6 @@ func New(opts Options) (*App, error) {
 	app := &App{
 		store:        opts.Store,
 		factory:      opts.Factory,
-		reader:       bufio.NewReader(opts.Input),
 		output:       opts.Output,
 		errOutput:    errOutput,
 		historyRoot:  historyRoot,
@@ -197,6 +195,10 @@ func New(opts Options) (*App, error) {
 		cfg:          cfg,
 		mode:         modeInput,
 	}
+
+	app.lineReader = createLineReader(opts.Input, app.output, func() {
+		app.handleInterrupt()
+	})
 
 	app.setupSignals(opts.Interrupts)
 
@@ -374,11 +376,7 @@ func (a *App) Run(ctx context.Context) error {
 			return nil
 		}
 
-		if err := a.printPrompt(); err != nil {
-			return err
-		}
-
-		line, err := a.readLine()
+		line, err := a.readLine("humble-ai> ")
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -415,17 +413,11 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
-func (a *App) printPrompt() error {
-	_, err := fmt.Fprint(a.output, "humble-ai> ")
-	return err
-}
-
-func (a *App) readLine() (string, error) {
-	text, err := a.reader.ReadString('\n')
-	if err != nil {
-		return "", err
+func (a *App) readLine(prompt string) (string, error) {
+	if a.lineReader == nil {
+		return "", errors.New("line reader not configured")
 	}
-	return strings.TrimRight(text, "\r\n"), nil
+	return a.lineReader.ReadLine(prompt)
 }
 
 func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
@@ -473,9 +465,7 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 		}
 		fmt.Fprintf(a.output, "  %d) %s (%s)%s\n", idx+1, m.Name, m.Provider, activeMarker)
 	}
-	fmt.Fprint(a.output, "Choice: ")
-
-	choiceLine, err := a.readLine()
+	choiceLine, err := a.readLine("Choice: ")
 	if err != nil {
 		return err
 	}
@@ -892,8 +882,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 	}
 
 	for {
-		fmt.Fprint(a.output, "Call now? (Y/N): ")
-		answer, err := a.readLine()
+		answer, err := a.readLine("Call now? (Y/N): ")
 		if err != nil {
 			return err
 		}

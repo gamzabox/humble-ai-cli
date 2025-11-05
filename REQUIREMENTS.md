@@ -10,6 +10,7 @@
 - LLM 으로부터 thinking 메시지를 수신하면 `<<< Thinking >>>` 줄을 출력한 뒤 thinking 내용을 스트리밍으로 표시하고, 종료 시 `<<< End Thinking >>>` 줄을 출력한다.
 - LLM 의 답변을 기다리거나 출력 중에 CTRL+C 를 누르면 다시 입력 모드로 돌아 간다.
 - 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료 한다.
+- 프롬프트 입력 시 좌우 방향키, Home, End 키로 커서를 이동할 수 있어야 하며, 한국어/중국어/일본어 등 다국어 입력에서도 정상 동작해야 한다.
 
 ## Config
 - API 연계 정보등의 설정은 $HOME/.humble-ai-cli/config.json 파일을 사용 함
