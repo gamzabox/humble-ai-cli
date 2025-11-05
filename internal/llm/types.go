@@ -55,11 +55,11 @@ type ToolResult struct {
 
 // ToolDefinition describes a single callable tool provided to the LLM.
 type ToolDefinition struct {
-	Name        string
-	Description string
-	Server      string
-	Method      string
-	Parameters  map[string]any
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Server      string         `json:"server"`
+	Method      string         `json:"method"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 // StreamChunk represents a single streamed chunk.
