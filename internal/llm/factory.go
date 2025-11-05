@@ -193,11 +193,7 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 		}
 
 		for _, choice := range chunk.Choices {
-			if len(choice.Delta.Reasoning) > 0 {
-				for _, text := range extractReasoningSegments(choice.Delta.Reasoning) {
-					stream <- StreamChunk{Type: ChunkThinking, Content: text}
-				}
-			}
+			emitReasoningChunks(stream, choice.Delta.Reasoning, choice.Delta.ReasoningContent)
 
 			if choice.Delta.Content != "" {
 				stream <- StreamChunk{Type: ChunkToken, Content: choice.Delta.Content}
@@ -330,9 +326,10 @@ type openAIStreamChunk struct {
 }
 
 type openAIDelta struct {
-	Content   string                `json:"content"`
-	ToolCalls []openAIToolCallDelta `json:"tool_calls"`
-	Reasoning json.RawMessage       `json:"reasoning"`
+	Content          string                `json:"content"`
+	ToolCalls        []openAIToolCallDelta `json:"tool_calls"`
+	Reasoning        json.RawMessage       `json:"reasoning"`
+	ReasoningContent json.RawMessage       `json:"reasoning_content"`
 }
 
 type openAIToolCallDelta struct {
@@ -515,13 +512,21 @@ type ollamaRawToolCall struct {
 type ollamaStreamChunk struct {
 	Done    bool `json:"done"`
 	Message struct {
-		Role      string              `json:"role"`
-		Content   string              `json:"content"`
-		ToolCalls []ollamaRawToolCall `json:"tool_calls"`
-		Reasoning json.RawMessage     `json:"reasoning"`
+		Role              string              `json:"role"`
+		Content           string              `json:"content"`
+		ToolCalls         []ollamaRawToolCall `json:"tool_calls"`
+		Reasoning         json.RawMessage     `json:"reasoning"`
+		Thinking          json.RawMessage     `json:"thinking"`
+		Thoughts          json.RawMessage     `json:"thoughts"`
+		InternalThoughts  json.RawMessage     `json:"internal_thoughts"`
+		InternalMonologue json.RawMessage     `json:"internal_monologue"`
 	} `json:"message"`
-	Reasoning json.RawMessage `json:"reasoning"`
-	Error     string          `json:"error"`
+	Reasoning         json.RawMessage `json:"reasoning"`
+	Thinking          json.RawMessage `json:"thinking"`
+	Thoughts          json.RawMessage `json:"thoughts"`
+	InternalThoughts  json.RawMessage `json:"internal_thoughts"`
+	InternalMonologue json.RawMessage `json:"internal_monologue"`
+	Error             string          `json:"error"`
 }
 
 type ollamaOutgoingToolCall struct {
@@ -693,16 +698,18 @@ func (p *ollamaProvider) streamOnce(
 			continue
 		}
 
-		if len(chunk.Message.Reasoning) > 0 {
-			for _, text := range extractReasoningSegments(chunk.Message.Reasoning) {
-				stream <- StreamChunk{Type: ChunkThinking, Content: text}
-			}
-		}
-		if len(chunk.Reasoning) > 0 {
-			for _, text := range extractReasoningSegments(chunk.Reasoning) {
-				stream <- StreamChunk{Type: ChunkThinking, Content: text}
-			}
-		}
+		emitReasoningChunks(stream,
+			chunk.Message.Reasoning,
+			chunk.Message.Thinking,
+			chunk.Message.Thoughts,
+			chunk.Message.InternalThoughts,
+			chunk.Message.InternalMonologue,
+			chunk.Reasoning,
+			chunk.Thinking,
+			chunk.Thoughts,
+			chunk.InternalThoughts,
+			chunk.InternalMonologue,
+		)
 
 		if chunk.Message.Content != "" {
 			stream <- StreamChunk{Type: ChunkToken, Content: chunk.Message.Content}
@@ -884,6 +891,14 @@ func extractReasoningSegments(raw json.RawMessage) []string {
 	var out []string
 	collectReasoningStrings(&out, data)
 	return out
+}
+
+func emitReasoningChunks(stream chan<- StreamChunk, raws ...json.RawMessage) {
+	for _, raw := range raws {
+		for _, text := range extractReasoningSegments(raw) {
+			stream <- StreamChunk{Type: ChunkThinking, Content: text}
+		}
+	}
 }
 
 func collectReasoningStrings(out *[]string, value any) {

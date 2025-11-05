@@ -610,6 +610,9 @@ loop:
 
 		switch chunk.Type {
 		case llm.ChunkThinking:
+			if strings.TrimSpace(chunk.Content) == "" {
+				continue
+			}
 			openThinking()
 			if chunk.Content != "" {
 				fmt.Fprint(a.output, chunk.Content)

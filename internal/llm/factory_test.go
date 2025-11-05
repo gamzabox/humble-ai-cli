@@ -249,6 +249,73 @@ finished:
 	}
 }
 
+func TestOllamaProviderStreamsThinkingFields(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		defer r.Body.Close()
+
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"message":{"role":"assistant","content":"","thinking":"Analyzing idea"},"done":false}`+"\n")
+		io.WriteString(w, `{"thinking":"Refining plan","done":false}`+"\n")
+		io.WriteString(w, `{"message":{"role":"assistant","content":"Answer"},"done":false}`+"\n")
+		io.WriteString(w, `{"done":true}`+"\n")
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "llama3.2",
+		Provider: "ollama",
+		BaseURL:  server.URL,
+	}
+
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, ChatRequest{Model: model.Name, Stream: true})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expect := func() StreamChunk {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed early")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "" {
+		t.Fatalf("expected initial thinking chunk, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Analyzing idea" {
+		t.Fatalf("expected message thinking payload, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Refining plan" {
+		t.Fatalf("expected top-level thinking payload, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkToken || chunk.Content != "Answer" {
+		t.Fatalf("expected final answer token, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkDone {
+		t.Fatalf("expected done chunk, got %#v", chunk)
+	}
+}
+
 func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 	t.Parallel()
 
@@ -357,6 +424,7 @@ func TestOpenAIProviderStreamsReasoningContentVariants(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"content":[{"type":"text","text":"Step 1"}]}}}]}`+"\n\n")
 		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning":{"output_text":"\nConclusion."}}}]}`+"\n\n")
+		io.WriteString(w, `data: {"choices":[{"delta":{"reasoning_content":"Additional insight"}}]}`+"\n\n")
 		io.WriteString(w, `data: {"choices":[{"delta":{"content":"Final"}}]}`+"\n\n")
 		io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`+"\n\n")
 		io.WriteString(w, "data: [DONE]\n\n")
@@ -405,6 +473,9 @@ func TestOpenAIProviderStreamsReasoningContentVariants(t *testing.T) {
 	}
 	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Conclusion." {
 		t.Fatalf("expected second reasoning content, got %#v", chunk)
+	}
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Additional insight" {
+		t.Fatalf("expected reasoning_content payload, got %#v", chunk)
 	}
 	if chunk := expect(); chunk.Type != ChunkToken || chunk.Content != "Final" {
 		t.Fatalf("expected final token, got %#v", chunk)
