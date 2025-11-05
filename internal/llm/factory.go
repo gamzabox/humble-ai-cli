@@ -889,19 +889,21 @@ func extractReasoningSegments(raw json.RawMessage) []string {
 func collectReasoningStrings(out *[]string, value any) {
 	switch v := value.(type) {
 	case string:
-		if v != "" {
-			*out = append(*out, v)
+		text := strings.TrimSpace(v)
+		if text != "" {
+			*out = append(*out, text)
 		}
 	case []any:
 		for _, item := range v {
 			collectReasoningStrings(out, item)
 		}
 	case map[string]any:
-		keys := []string{"text", "token", "tokens", "thought", "output_text", "content", "value", "explanation", "steps"}
-		for _, key := range keys {
-			if val, ok := v[key]; ok {
-				collectReasoningStrings(out, val)
+		for key, val := range v {
+			switch key {
+			case "type", "id", "role", "finish_reason", "index":
+				continue
 			}
+			collectReasoningStrings(out, val)
 		}
 	}
 }
