@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"unicode/utf8"
 
@@ -105,6 +106,18 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 				renderLine(r.output, prompt, buffer)
 			}
 		default:
+			if runtime.GOOS == "windows" && (b == 0x00 || b == 0xe0) {
+				handled, changed, err := handleWindowsControlKey(b, reader, buffer)
+				if err != nil {
+					return "", err
+				}
+				if handled {
+					if changed {
+						renderLine(r.output, prompt, buffer)
+					}
+					continue
+				}
+			}
 			if r.insertRune(b, reader, buffer) {
 				renderLine(r.output, prompt, buffer)
 			}
@@ -197,6 +210,32 @@ func readCSISequence(reader *bufio.Reader) (string, error) {
 		}
 	}
 	return string(seq), nil
+}
+
+func handleWindowsControlKey(prefix byte, reader io.ByteReader, buffer *lineBuffer) (bool, bool, error) {
+	if prefix != 0x00 && prefix != 0xe0 {
+		return false, false, nil
+	}
+
+	code, err := reader.ReadByte()
+	if err != nil {
+		return false, false, err
+	}
+
+	switch code {
+	case 0x4b: // Left arrow
+		return true, buffer.MoveLeft(), nil
+	case 0x4d: // Right arrow
+		return true, buffer.MoveRight(), nil
+	case 0x47: // Home
+		return true, buffer.MoveHome(), nil
+	case 0x4f: // End
+		return true, buffer.MoveEnd(), nil
+	case 0x53: // Delete
+		return true, buffer.Delete(), nil
+	default:
+		return true, false, nil
+	}
 }
 
 func createLineReader(input io.Reader, output io.Writer, onInterrupt func()) lineReader {

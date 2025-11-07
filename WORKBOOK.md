@@ -85,3 +85,8 @@ curl http://localhost:11434/api/chat -d '{
 - LLM 으로 수신하는 Thinking 메시지를 streaming 할것
 - Thinking 메시지 임을 인지 할 수 있도록 시작과 끝을 구분 할 것
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Windows Terminal 에서 커서 이동 안되는 문제 수정
+- 리눅스에서는 사용자 프롬프트 입력시 커서이동이 잘되지만 windows 에서는 동작 안함
+- windows 에서도 커서 이동을 할 수 있도록 수정 필요
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
