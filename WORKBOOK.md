@@ -131,3 +131,246 @@ curl http://localhost:11434/api/chat -d '{
   - 커맨드: /set-tool-mode [auto|manual]
   - auto 와 manual 이 아닌 다른 값 입력시 auto 와 manual 둘중 하나를 입력 하라는 메시지 출력
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# OpenAI 와 Ollama API 의 tool_choice 값을 활용 한 route intent 구현
+1. 기존에 항상 전체 MCP 에 대한 Tool Schema 를 전달하는 방식을 수정해서 이제는 route intent 를 추가해 call_tool 또는 finalize 를 우선 선택 하도록 수정
+2. 최초 사용자 프롬프트 입력시 System prompt 에 Tool List 와 Description 을 추가하고 Tool Schema 는 route_intent 만 추가, tool_choice 값도 function: route intent 로 설정
+```json
+{
+	"model": "qwen2.5:7b-instruct",
+	"messages": [
+		{
+			"role": "system",
+			"content": "You are a strict router. Choose the single best next action.\n\nTOOL CATALOG (do not reveal to user):\n- search_news: Search recent AI news on the web and return normalized items(title,url,summary,source,time).\n- fetch_html: Fetch raw HTML for a given URL.\n- extract_meta: Extract <title> and meta description from provided HTML.\n\nROUTING RULES:\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\n2) Prefer the least-latency tool that satisfies the goal.\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\n"
+		},
+		{
+			"role": "user",
+			"content": "이 URL에서 제목과 메타설명만 요약해줘: https://example.com"
+		}
+	],
+	"tools": [
+		{
+			"type": "function",
+			"function": {
+				"name": "route_intent",
+				"description": "Decide the next action.",
+				"parameters": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"decision": {
+							"enum": [
+								"call_tool",
+								"finalize"
+							]
+						},
+						"tool": {
+							"type": "string",
+							"nullable": true
+						}
+					},
+					"required": [
+						"decision"
+					]
+				}
+			}
+		}
+	],
+	"tool_choice": {
+		"type": "function",
+		"function": {
+			"name": "route_intent"
+		}
+	},
+	"options": {
+		"temperature": 0.0
+	}
+}
+```
+
+2. 라우팅 응답이 finalize 일 경우 최종 답변을 위해 tool_choice 값을 none 으로 설정하고 LLM 을 호출 함
+3. 라우팅 응답이 call_tool 일 경우 다음과 같이 tool 이름이 fetch_html 으로 확인 할 수 있음
+```json
+{
+  "role": "assistant",
+  "tool_calls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "route_intent",
+        "arguments": {
+          "decision": "call_tool",
+          "tool": "fetch_html",
+        }
+      }
+    }
+  ]
+}
+```
+
+4. 이제 LLM 이 선택한 툴 fetch_html 에 대한 구체적인 Schema 를 설정하고 tool_choice 를 fetch_html 로 설정해서 LLM 에게 전달
+```json
+{
+	"model": "qwen2.5:7b-instruct",
+	"messages": [
+		{
+			"role": "system",
+			"content": "System prompt helpful to call function fetch_html\n"
+		},
+		{
+			"role": "user",
+			"content": "이 URL에서 제목과 메타설명만 요약해줘: https://example.com"
+		}
+	],
+	"tools": [
+		{
+			"type": "function",
+			"function": {
+				"name": "fetch_html",
+				"description": "Fetch raw HTML for a given URL.",
+				"parameters": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"url": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"url"
+					]
+				}
+			}
+		}
+	],
+	"tool_choice": {
+		"type": "function",
+		"function": {
+			"name": "fetch_html"
+		}
+	},
+	"options": {
+		"temperature": 0.0
+	}
+}
+```
+
+5. LLM 이 다음과 같이 Tool Call 요청 답변을 보냄
+```json
+{
+  "role": "assistant",
+  "tool_calls": [{
+    "type": "function",
+    "function": {
+      "name": "fetch_html",
+      "arguments": {
+        "url":"https://example.com"
+      }
+    }
+  }]
+}
+```
+
+6. Assistant 는 fetch_html 를 호출하고 결과를 Context 에 추가. 여기서 LLM 이 추가로 Tool call 이 필요 할 수 있으니 route intent 를 다시 보냄
+```json
+{
+	"model": "qwen2.5:7b-instruct",
+	"messages": [
+		{
+			"role": "system",
+			"content": "You are a strict router. Choose the single best next action.\n\nTOOL CATALOG (do not reveal to user):\n- search_news: Search recent AI news on the web and return normalized items(title,url,summary,source,time).\n- fetch_html: Fetch raw HTML for a given URL.\n- extract_meta: Extract <title> and meta description from provided HTML.\n\nROUTING RULES:\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\n2) Prefer the least-latency tool that satisfies the goal.\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\n"
+		},
+		{
+			"role": "user",
+			"content": "이 URL에서 제목과 메타설명만 요약해줘: https://example.com"
+		},
+    {
+      "role": "tool",
+      "name": "fetch_html",
+      "content": "{\"html\":\"<title>Example Domain</title><meta name=\\\"description\\\" content=\\\"...\\\">...\"}"
+    }
+	],
+	"tools": [
+		{
+			"type": "function",
+			"function": {
+				"name": "route_intent",
+				"description": "Decide the next action.",
+				"parameters": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"decision": {
+							"enum": [
+								"call_tool",
+								"finalize"
+							]
+						},
+						"tool": {
+							"type": "string",
+							"nullable": true
+						}
+					},
+					"required": [
+						"decision"
+					]
+				}
+			}
+		}
+	],
+	"tool_choice": {
+		"type": "function",
+		"function": {
+			"name": "route_intent"
+		}
+	},
+	"options": {
+		"temperature": 0.0
+	}
+}
+```
+
+7. 라우팅 응답이 다음과 같이 finalize 일 경우 최종 답변을 위해 tool_choice 값을 none 으로 설정하고 LLM 을 호출 함
+```json
+{
+  "role": "assistant",
+  "tool_calls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "route_intent",
+        "arguments": {
+          "decision": "finalize"
+        }
+      }
+    }
+  ]
+}
+```
+
+8. 최종 답변을 위해 tool_choice 값을 none 으로 설정하고 LLM 을 호출 함
+```json
+{
+	"model": "qwen2.5:7b-instruct",
+	"messages": [
+		{
+			"role": "system",
+			"content": "System prompt to generate natural final message"
+		},
+		{
+			"role": "user",
+			"content": "이 URL에서 제목과 메타설명만 요약해줘: https://example.com"
+		},
+    {
+      "role": "tool",
+      "name": "fetch_html",
+      "content": "{\"html\":\"<title>Example Domain</title><meta name=\\\"description\\\" content=\\\"...\\\">...\"}"
+    }
+	],
+	"tool_choice": "none",
+	"options": {
+		"temperature": 0.4
+	}
+}
+```
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
