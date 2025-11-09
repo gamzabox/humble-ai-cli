@@ -421,13 +421,23 @@ func (a *App) readLine(prompt string) (string, error) {
 }
 
 func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
-	switch line {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return false, nil
+	}
+
+	cmd := fields[0]
+	args := fields[1:]
+
+	switch cmd {
 	case "/help":
 		a.printHelp()
 	case "/new":
 		a.startNewSession()
 	case "/set-model":
 		return false, a.changeActiveModel(ctx)
+	case "/set-tool-mode":
+		return false, a.setToolMode(args)
 	case "/mcp":
 		return false, a.printMCPServers(ctx)
 	case "/exit":
@@ -443,6 +453,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.output, "  /help       Show this help message.")
 	fmt.Fprintln(a.output, "  /new        Start a fresh session.")
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
+	fmt.Fprintln(a.output, "  /set-tool-mode [auto|manual]  Choose whether MCP tools run automatically.")
 	fmt.Fprintln(a.output, "  /mcp        List enabled MCP servers and their functions.")
 	fmt.Fprintln(a.output, "  /exit       Exit the application.")
 }
@@ -503,6 +514,35 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 
 func (a *App) configFilePath() string {
 	return filepath.Join(a.homeDir, ".humble-ai-cli", "config.json")
+}
+
+func (a *App) setToolMode(args []string) error {
+	if len(args) != 1 {
+		fmt.Fprintln(a.output, "Usage: /set-tool-mode [auto|manual]")
+		return nil
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(args[0]))
+	if mode != string(config.ToolCallModeAuto) && mode != string(config.ToolCallModeManual) {
+		fmt.Fprintln(a.output, "Please enter either auto or manual.")
+		return nil
+	}
+
+	a.cfgMu.RLock()
+	cfg := a.cfg
+	a.cfgMu.RUnlock()
+
+	cfg.ToolCallMode = mode
+	if err := a.store.Save(cfg); err != nil {
+		return err
+	}
+
+	a.cfgMu.Lock()
+	a.cfg = cfg
+	a.cfgMu.Unlock()
+
+	fmt.Fprintf(a.output, "Tool call mode set to %s.\n", mode)
+	return nil
 }
 
 func (a *App) startNewSession() {
@@ -884,6 +924,45 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 		}
 	}
 
+	if a.toolCallMode() == config.ToolCallModeAuto {
+		return a.executeToolCall(ctx, call)
+	}
+	return a.confirmToolCall(ctx, cancel, call)
+}
+
+func (a *App) toolCallMode() config.ToolCallMode {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return a.cfg.EffectiveToolCallMode()
+}
+
+func (a *App) executeToolCall(ctx context.Context, call *llm.ToolCall) error {
+	if a.mcp == nil {
+		return errors.New("mcp executor not configured")
+	}
+
+	a.logDebug("MCP call start: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
+	result, err := a.mcp.Call(ctx, call.Server, call.Method, call.Arguments)
+	if err != nil {
+		if call.Respond != nil {
+			_ = call.Respond(ctx, llm.ToolResult{Content: err.Error(), IsError: true})
+		}
+		a.logError("MCP call error: server=%s method=%s err=%v", call.Server, call.Method, err)
+		return err
+	}
+
+	if call.Respond != nil {
+		if err := call.Respond(ctx, result); err != nil && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("deliver MCP result: %w", err)
+		}
+	}
+
+	a.logDebug("MCP call success: server=%s method=%s result=%s", call.Server, call.Method, strings.TrimSpace(result.Content))
+	fmt.Fprintln(a.output, "MCP call completed.")
+	return nil
+}
+
+func (a *App) confirmToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
 	for {
 		answer, err := a.readLine("Call now? (Y/N): ")
 		if err != nil {
@@ -892,29 +971,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "y", "yes":
-			if a.mcp == nil {
-				return errors.New("mcp executor not configured")
-			}
-
-			a.logDebug("MCP call start: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
-			result, err := a.mcp.Call(ctx, call.Server, call.Method, call.Arguments)
-			if err != nil {
-				if call.Respond != nil {
-					_ = call.Respond(ctx, llm.ToolResult{Content: err.Error(), IsError: true})
-				}
-				a.logError("MCP call error: server=%s method=%s err=%v", call.Server, call.Method, err)
-				return err
-			}
-
-			if call.Respond != nil {
-				if err := call.Respond(ctx, result); err != nil && !errors.Is(err, context.Canceled) {
-					return fmt.Errorf("deliver MCP result: %w", err)
-				}
-			}
-
-			a.logDebug("MCP call success: server=%s method=%s result=%s", call.Server, call.Method, strings.TrimSpace(result.Content))
-			fmt.Fprintln(a.output, "MCP call completed.")
-			return nil
+			return a.executeToolCall(ctx, call)
 		case "n", "no":
 			if call.Respond != nil {
 				_ = call.Respond(ctx, llm.ToolResult{Content: "user cancelled MCP call", IsError: true})

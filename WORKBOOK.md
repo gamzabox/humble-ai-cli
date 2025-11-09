@@ -120,3 +120,14 @@ curl http://localhost:11434/api/chat -d '{
 }
 ```
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Tool Calling auto/manual 설정 기능 추가
+- toolCallMode config 추가
+  - config.json 에 toolCallMode 항목을 추가하고 auto 또는 manual 로 설정 하도록 기능 추가
+  - auto 로 설정 된 경우 Tool Call 시 현재와 같이 Tool Call 에 대한 메시지를 출력하지만 Call now? 를 통해 사용자에게 실행을 확인하지 않고 자동 실행 함
+  - manual 로 설절 된 경우 현재와 같이 Call now? 를 통해 사용자에게 실행을 확인 함
+  - 설정값이 없을 경우 default 값은 manual
+- 이 설정 값을 변경 할수 있는 command 추가
+  - 커맨드: /set-tool-mode [auto|manual]
+  - auto 와 manual 이 아닌 다른 값 입력시 auto 와 manual 둘중 하나를 입력 하라는 메시지 출력
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

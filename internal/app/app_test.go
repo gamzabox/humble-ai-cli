@@ -316,10 +316,184 @@ func TestAppDisplaysHelpCommand(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, cmd := range []string{"/help", "/set-model", "/exit"} {
+	for _, cmd := range []string{"/help", "/set-model", "/set-tool-mode", "/exit"} {
 		if !strings.Contains(got, cmd) {
 			t.Fatalf("expected help output to include %s, got:\n%s", cmd, got)
 		}
+	}
+}
+
+func TestAppSetToolModeCommandUpdatesConfig(t *testing.T) {
+	store := &stubStore{
+		cfg: config.Config{
+			ToolCallMode: "manual",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+	factory := newStubFactory()
+	input := strings.NewReader("/set-tool-mode auto\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: t.TempDir(),
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if store.cfg.ToolCallMode != "auto" {
+		t.Fatalf("expected store to persist auto mode, got %s", store.cfg.ToolCallMode)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Tool call mode set to auto") {
+		t.Fatalf("expected confirmation output, got:\n%s", got)
+	}
+}
+
+func TestAppSetToolModeCommandRejectsInvalidValue(t *testing.T) {
+	store := &stubStore{
+		cfg: config.Config{
+			ToolCallMode: "manual",
+		},
+	}
+	factory := newStubFactory()
+	input := strings.NewReader("/set-tool-mode maybe\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: t.TempDir(),
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if store.cfg.ToolCallMode != "manual" {
+		t.Fatalf("expected tool call mode to remain manual, got %s", store.cfg.ToolCallMode)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Please enter either auto or manual") {
+		t.Fatalf("expected validation message, got:\n%s", got)
+	}
+}
+
+func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{
+			ToolCallMode: "auto",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server:      "calculator",
+			Method:      "add",
+			Description: "Add numbers.",
+			Arguments: map[string]any{
+				"a": float64(2),
+				"b": float64(3),
+			},
+		},
+		after: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Final answer: 5"},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Adds numbers via MCP."},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add two numbers."},
+			},
+		},
+		response: llm.ToolResult{Content: "5"},
+	}
+
+	input := strings.NewReader("Please add\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.Content != "5" {
+			t.Fatalf("unexpected tool result content: %s", res.Content)
+		}
+	default:
+		t.Fatalf("expected tool result to be delivered")
+	}
+
+	if len(mcpExec.Calls()) != 1 {
+		t.Fatalf("expected exactly one MCP call, got %d", len(mcpExec.Calls()))
+	}
+
+	got := output.String()
+	if strings.Contains(got, "Call now?") {
+		t.Fatalf("auto mode should not prompt for confirmation, got:\n%s", got)
+	}
+	if !strings.Contains(got, "MCP call completed.") {
+		t.Fatalf("expected call completion message, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Final answer: 5") {
+		t.Fatalf("expected final answer output, got:\n%s", got)
 	}
 }
 

@@ -11,6 +11,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/help` – show available commands.
   - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
+  - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
   - `/mcp` – display enabled MCP servers and the functions they expose.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
@@ -43,12 +44,14 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "baseUrl": "http://localhost:11434"
     }
   ],
-  "logLevel": "debug"
+  "logLevel": "debug",
+  "toolCallMode": "manual"
 }
 ```
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.
+Set `toolCallMode` to `auto` to automatically run approved MCP tool calls without the confirmation prompt (the default `manual` mode keeps the confirmation step). You can also adjust this within the CLI via `/set-tool-mode auto` or `/set-tool-mode manual`.
 
 ### Logging
 - Logs are written to `~/.humble-ai-cli/logs/application-hac-YYYY-MM-DD.log`.
@@ -87,7 +90,7 @@ Set `active` to `true` for the model you want the CLI to use by default. Only on
 ```
 - `command` servers spawn a local process (passing `args` and `env`).
 - `url` servers connect to remote MCP servers via SSE (`transport: "sse"`, default) or streamable HTTP (`transport: "http"`). For remote servers, `env` entries are sent as HTTP headers.
-- When the LLM requests a tool call, the CLI prints the server name and description, then asks `Call now? (Y/N)`. Enter `Y` to execute or `N` to cancel.
+- When the LLM requests a tool call, the CLI prints the server name and description. In `manual` mode it then asks `Call now? (Y/N)`; in `auto` mode it executes immediately after printing the summary. Toggle the behaviour with `/set-tool-mode`.
 - On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
 
 ### Prompting Example

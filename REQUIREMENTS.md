@@ -21,6 +21,9 @@
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
 - 활성 모델이 존재하지 않으면 사용자 입력 시 /set-model 커맨드를 안내한다.
 - log level 설정: debug, info(default), warn, error
+- `toolCallMode` 설정을 추가하고 manual(default) 또는 auto 값을 허용한다.
+    - manual 일 경우 MCP tool call 시 사용자에게 실행 여부를 재확인한다.
+    - auto 일 경우 tool call 요약을 출력하되 추가 확인 없이 즉시 호출한다.
 - system prompt 설정은 $HOME/.humble-ai-cli/system_prompt.txt 파일을 사용 함
   - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함
   - 최초 실행 시 system_prompt.txt 파일의 존재 여부를 확인하고 미 존재시 Default system_prompt.txt 를 생성 할 것.
@@ -38,6 +41,7 @@
     - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
     - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 function 이름과 description 을 출력한다.
+    - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
 
 ## Logging

@@ -72,3 +72,9 @@
 - [x] 새로운 schema와 remote 연결 방식을 검증하는 테스트를 추가한다.
 - [x] MCP Manager가 새 schema를 로드하고 command/SSE/HTTP 연결을 처리하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Tool Call Mode 설정
+- [x] tool call mode 요구사항을 REQUIREMENTS.md/README.md/TASKS.md에 반영한다.
+- [x] tool call mode 설정과 /set-tool-mode 커맨드를 검증하는 테스트를 추가한다.
+- [x] tool call mode 설정 및 커맨드 구현을 완료한다.
+- [x] `go test ./...` 로 전체 테스트를 실행해 통과시킨다.

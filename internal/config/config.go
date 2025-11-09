@@ -22,10 +22,21 @@ type Model struct {
 	Active   bool   `json:"active,omitempty"`
 }
 
+// ToolCallMode represents how MCP tool calls should be executed.
+type ToolCallMode string
+
+const (
+	// ToolCallModeManual prompts the user before executing MCP tools.
+	ToolCallModeManual ToolCallMode = "manual"
+	// ToolCallModeAuto executes MCP tools immediately while still showing a summary.
+	ToolCallModeAuto ToolCallMode = "auto"
+)
+
 // Config captures CLI configuration.
 type Config struct {
-	LogLevel string  `json:"logLevel,omitempty"`
-	Models   []Model `json:"models,omitempty"`
+	LogLevel     string  `json:"logLevel,omitempty"`
+	ToolCallMode string  `json:"toolCallMode,omitempty"`
+	Models       []Model `json:"models,omitempty"`
 }
 
 // FindModel locates a model by name.
@@ -74,7 +85,24 @@ func (c Config) Validate() error {
 			return fmt.Errorf("invalid logLevel %q", c.LogLevel)
 		}
 	}
+
+	if mode := strings.TrimSpace(c.ToolCallMode); mode != "" {
+		normalized := strings.ToLower(mode)
+		if normalized != string(ToolCallModeManual) && normalized != string(ToolCallModeAuto) {
+			return fmt.Errorf("invalid toolCallMode %q", c.ToolCallMode)
+		}
+	}
+
 	return nil
+}
+
+// EffectiveToolCallMode returns the configured tool call mode, defaulting to manual.
+func (c Config) EffectiveToolCallMode() ToolCallMode {
+	mode := strings.ToLower(strings.TrimSpace(c.ToolCallMode))
+	if mode == string(ToolCallModeAuto) {
+		return ToolCallModeAuto
+	}
+	return ToolCallModeManual
 }
 
 // Store abstracts configuration persistence.
