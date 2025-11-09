@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,7 +20,12 @@ func TestManagerReusesLiveSession(t *testing.T) {
 
 	ctx := context.Background()
 	home := t.TempDir()
-	writeServerConfig(t, home, `{"name":"test","enabled":true,"command":"ignored"}`)
+	writeServerConfig(t, home, map[string]map[string]any{
+		"test": {
+			"enabled": true,
+			"command": "ignored",
+		},
+	})
 
 	mgr, err := NewManager(home)
 	if err != nil {
@@ -56,7 +63,12 @@ func TestManagerReconnectsClosedSession(t *testing.T) {
 
 	ctx := context.Background()
 	home := t.TempDir()
-	writeServerConfig(t, home, `{"name":"test","enabled":true,"command":"ignored"}`)
+	writeServerConfig(t, home, map[string]map[string]any{
+		"test": {
+			"enabled": true,
+			"command": "ignored",
+		},
+	})
 
 	mgr, err := NewManager(home)
 	if err != nil {
@@ -98,7 +110,12 @@ func TestManagerCloseShutsDownSessions(t *testing.T) {
 
 	ctx := context.Background()
 	home := t.TempDir()
-	writeServerConfig(t, home, `{"name":"test","enabled":true,"command":"ignored"}`)
+	writeServerConfig(t, home, map[string]map[string]any{
+		"test": {
+			"enabled": true,
+			"command": "ignored",
+		},
+	})
 
 	mgr, err := NewManager(home)
 	if err != nil {
@@ -122,6 +139,160 @@ func TestManagerCloseShutsDownSessions(t *testing.T) {
 	}
 
 	waitFor(t, time.Second, func() bool { return !handle.alive() })
+}
+
+func TestDefaultSessionDialerConnectsSSEServer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	server := sdk.NewServer(&sdk.Implementation{Name: "remote", Version: "0.0.1"}, nil)
+	server.AddTool(&sdk.Tool{
+		Name:        "ping",
+		Description: "Simple ping",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: "pong"},
+			},
+		}, nil
+	})
+
+	handler := sdk.NewSSEHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	var (
+		headerMu sync.Mutex
+		headers  []http.Header
+	)
+	capturingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerMu.Lock()
+		headers = append(headers, r.Header.Clone())
+		headerMu.Unlock()
+		handler.ServeHTTP(w, r)
+	})
+
+	httpServer := httptest.NewServer(capturingHandler)
+	defer httpServer.Close()
+
+	cfg := serverConfig{
+		Name:      "remote-sse",
+		Enabled:   true,
+		URL:       httpServer.URL,
+		Transport: transportSSE,
+		Env: map[string]string{
+			"Authorization": "Bearer token",
+		},
+	}
+
+	holder, err := defaultSessionDialer(ctx, cfg)
+	if err != nil {
+		t.Fatalf("defaultSessionDialer() error = %v", err)
+	}
+	defer holder.Close()
+
+	res, err := holder.session.CallTool(ctx, &sdk.CallToolParams{Name: "ping"})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if res.Content == nil || len(res.Content) == 0 {
+		t.Fatalf("CallTool() returned empty content")
+	}
+	if text := res.Content[0].(*sdk.TextContent).Text; text != "pong" {
+		t.Fatalf("CallTool() content = %q, want %q", text, "pong")
+	}
+
+	headerMu.Lock()
+	defer headerMu.Unlock()
+	foundAuth := false
+	for _, hdr := range headers {
+		if hdr.Get("Authorization") == "Bearer token" {
+			foundAuth = true
+			break
+		}
+	}
+	if !foundAuth {
+		t.Fatalf("expected Authorization header to be forwarded to remote SSE server")
+	}
+}
+
+func TestDefaultSessionDialerConnectsHTTPServer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	server := sdk.NewServer(&sdk.Implementation{Name: "remote-http", Version: "0.0.1"}, nil)
+	server.AddTool(&sdk.Tool{
+		Name:        "double",
+		Description: "Doubles a number",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		var input map[string]any
+		_ = json.Unmarshal(req.Params.Arguments, &input)
+		value := input["value"].(float64)
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: fmt.Sprintf("%.0f", value*2)},
+			},
+		}, nil
+	})
+
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, nil)
+	var (
+		headerMu sync.Mutex
+		headers  []http.Header
+	)
+	capturingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headerMu.Lock()
+		headers = append(headers, r.Header.Clone())
+		headerMu.Unlock()
+		handler.ServeHTTP(w, r)
+	})
+
+	httpServer := httptest.NewServer(capturingHandler)
+	defer httpServer.Close()
+
+	cfg := serverConfig{
+		Name:      "remote-http",
+		Enabled:   true,
+		URL:       httpServer.URL,
+		Transport: transportHTTP,
+		Env: map[string]string{
+			"X-Test-Header": "1",
+		},
+	}
+
+	holder, err := defaultSessionDialer(ctx, cfg)
+	if err != nil {
+		t.Fatalf("defaultSessionDialer() error = %v", err)
+	}
+	defer holder.Close()
+
+	res, err := holder.session.CallTool(ctx, &sdk.CallToolParams{
+		Name:      "double",
+		Arguments: map[string]any{"value": 21},
+	})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if res.Content == nil || len(res.Content) == 0 {
+		t.Fatalf("CallTool() returned empty content")
+	}
+	if text := res.Content[0].(*sdk.TextContent).Text; text != "42" {
+		t.Fatalf("CallTool() content = %q, want %q", text, "42")
+	}
+
+	headerMu.Lock()
+	defer headerMu.Unlock()
+	foundHeader := false
+	for _, hdr := range headers {
+		if hdr.Get("X-Test-Header") == "1" {
+			foundHeader = true
+			break
+		}
+	}
+	if !foundHeader {
+		t.Fatalf("expected X-Test-Header to be forwarded to remote HTTP server")
+	}
 }
 
 // --- test helpers ---
@@ -214,14 +385,21 @@ func (d *testDialer) closeFirstServer() error {
 	return d.serverHandles[0].Close()
 }
 
-func writeServerConfig(t *testing.T, home, jsonConfig string) {
+func writeServerConfig(t *testing.T, home string, servers map[string]map[string]any) {
 	t.Helper()
-	dir := filepath.Join(home, ".humble-ai-cli", "mcp_servers")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", dir, err)
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", configDir, err)
 	}
-	path := filepath.Join(dir, "test.json")
-	if err := os.WriteFile(path, []byte(jsonConfig), 0o644); err != nil {
+	payload := map[string]any{
+		"mcpServers": servers,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	path := filepath.Join(configDir, "mcp-servers.json")
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 }

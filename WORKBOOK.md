@@ -17,7 +17,7 @@
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
 # MCP Server 호출 기능 추가
-- MCP Server 설정은 $HOME/.humble-ai-cli/mcp_servers 디렉토리에 각 mcp server 에 대한 json 설정 파일로 관리됨
+- MCP Server 설정은 $HOME/.humble-ai-cli/mcp-servers.json 파일의 `mcpServers` 맵으로 관리됨
   - MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음
 - LLM 이 필요시 MCP Server 호출을 요청 할 수 있고 humble-ai-cli 를 MCP Server 를 호출하고 결과를 LLM 에게 전달 함
 - 정확한 답변을 위해 LLM 은 MCP Server 를 여러번 호출 할 수 있음
@@ -89,4 +89,34 @@ curl http://localhost:11434/api/chat -d '{
 # Windows Terminal 에서 커서 이동 안되는 문제 수정
 - 리눅스에서는 사용자 프롬프트 입력시 커서이동이 잘되지만 windows 에서는 동작 안함
 - windows 에서도 커서 이동을 할 수 있도록 수정 필요
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# MCP 설정 파일 위치 및 Schema 변경
+- 새로운 mcp 설정 파일 위치: $HOME/.humble-ai-cli/mcp-servers.json
+- mcp-servers.json 하나의 파일에 여러개의 Mcp 서버를 정의 하는 방식
+- command 방식 뿐 아니라 SSE/HTTP URL (remote endpoint) 정의도 지원 할 것
+- 다음 MCP server JSON configuration snippet 을 참고 할것.
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxx"
+      }
+    },
+    "remote-sse": {
+      "url": "https://your-server.example.com/mcp/sse",
+      "env": {
+        "AUTH_TOKEN": "token"
+      }
+    }
+  }
+}
+```
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

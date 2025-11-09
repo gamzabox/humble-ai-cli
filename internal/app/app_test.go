@@ -706,21 +706,24 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 func TestAppHandlesMCPToolRequests(t *testing.T) {
 	home := t.TempDir()
 	configDir := filepath.Join(home, ".humble-ai-cli")
-	mcpDir := filepath.Join(configDir, "mcp_servers")
-	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
-		t.Fatalf("failed to create mcp directory: %v", err)
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config directory: %v", err)
 	}
 
 	serverConfig := map[string]any{
-		"name":        "calculator",
 		"description": "Adds two numbers for you.",
 		"enabled":     true,
 	}
-	raw, err := json.MarshalIndent(serverConfig, "", "  ")
+	payload := map[string]any{
+		"mcpServers": map[string]any{
+			"calculator": serverConfig,
+		},
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		t.Fatalf("failed to marshal server config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(mcpDir, "calculator.json"), append(raw, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "mcp-servers.json"), append(raw, '\n'), 0o644); err != nil {
 		t.Fatalf("failed to write server config: %v", err)
 	}
 
