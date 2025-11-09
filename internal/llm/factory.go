@@ -580,14 +580,14 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 	stream := make(chan StreamChunk)
 
 	messages := buildOllamaMessages(req)
-	tools, definitions := buildOpenAITools(req.Tools)
+	_, definitions := buildOpenAITools(req.Tools)
 
 	go func() {
 		defer close(stream)
 
 		thinkingSent := false
 		for {
-			result, err := p.streamOnce(ctx, req.Model, true, messages, tools, stream, &thinkingSent)
+			result, err := p.streamOnce(ctx, req.Model, true, messages, stream, &thinkingSent)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
@@ -635,11 +635,10 @@ func (p *ollamaProvider) streamOnce(
 	model string,
 	streaming bool,
 	messages []ollamaMessage,
-	tools []openAITool,
 	stream chan<- StreamChunk,
 	thinkingSent *bool,
 ) (*ollamaPassResult, error) {
-	payload, err := buildOllamaPayload(model, messages, streaming, tools)
+	payload, err := buildOllamaPayload(model, messages, streaming)
 	if err != nil {
 		return nil, err
 	}
@@ -729,6 +728,13 @@ func (p *ollamaProvider) streamOnce(
 	}
 
 	assistant.Content = builder.String()
+	if len(toolCalls) == 0 {
+		if manualCalls, cleaned := parseManualToolCall(assistant.Content); len(manualCalls) > 0 {
+			toolCalls = manualCalls
+			assistant.Content = strings.TrimSpace(cleaned)
+		}
+	}
+
 	logResponse := func(toolCallCount int) {
 		if logger == nil {
 			return
@@ -812,16 +818,16 @@ func (p *ollamaProvider) awaitToolResult(
 
 func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 	messages := buildOllamaMessages(req)
-	tools, _ := buildOpenAITools(req.Tools)
-	return buildOllamaPayload(req.Model, messages, req.Stream, tools)
+	return buildOllamaPayload(req.Model, messages, req.Stream)
 }
 
 func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
-	if strings.TrimSpace(req.SystemPrompt) != "" {
+	systemPrompt := enhanceSystemPromptWithToolSchema(req.SystemPrompt, req.Tools)
+	if strings.TrimSpace(systemPrompt) != "" {
 		messages = append(messages, ollamaMessage{
 			Role:    "system",
-			Content: req.SystemPrompt,
+			Content: systemPrompt,
 		})
 	}
 	for _, msg := range req.Messages {
@@ -833,16 +839,185 @@ func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	return messages
 }
 
-func buildOllamaPayload(model string, messages []ollamaMessage, stream bool, tools []openAITool) ([]byte, error) {
+func enhanceSystemPromptWithToolSchema(prompt string, defs []ToolDefinition) string {
+	prompt = strings.TrimSpace(prompt)
+	schema := buildToolSchemaPrompt(defs)
+	if schema == "" {
+		return prompt
+	}
+	if prompt == "" {
+		return schema
+	}
+	return prompt + "\n\n" + schema
+}
+
+func buildToolSchemaPrompt(defs []ToolDefinition) string {
+	if len(defs) == 0 {
+		return ""
+	}
+
+	type schemaTool struct {
+		Name        string         `json:"name"`
+		Description string         `json:"description,omitempty"`
+		Parameters  map[string]any `json:"parameters"`
+	}
+
+	items := make([]schemaTool, 0, len(defs))
+	for _, def := range defs {
+		params := cloneAnyMap(def.Parameters)
+		if params == nil {
+			params = defaultToolSchema()
+		}
+		items = append(items, schemaTool{
+			Name:        def.Name,
+			Description: def.Description,
+			Parameters:  params,
+		})
+	}
+
+	toolsJSON, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("CALL_FUNCTION:\nNever use natural language when you call function.\n\n\nFUNCTIONS:\n")
+	builder.Write(toolsJSON)
+	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t}\n}\n- Example\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t}\n}")
+	return builder.String()
+}
+
+func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]byte, error) {
 	payload := ollamaRequestPayload{
 		Model:    model,
 		Stream:   stream,
 		Messages: messages,
 	}
-	if len(tools) > 0 {
-		payload.Tools = tools
-	}
 	return json.Marshal(payload)
+}
+
+func parseManualToolCall(content string) ([]openAIToolCall, string) {
+	blocks := findJSONBlocks(content)
+	for _, block := range blocks {
+		call, ok := parseToolCallJSON(content[block.start:block.end])
+		if !ok {
+			continue
+		}
+		cleaned := removeJSONBlock(content, block.start, block.end)
+		return []openAIToolCall{call}, cleaned
+	}
+	return nil, content
+}
+
+type jsonBlock struct {
+	start int
+	end   int
+}
+
+func findJSONBlocks(text string) []jsonBlock {
+	var (
+		blocks   []jsonBlock
+		depth    int
+		start    = -1
+		inString bool
+		escape   bool
+	)
+
+	for i := 0; i < len(text); i++ {
+		ch := text[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 && start >= 0 {
+				blocks = append(blocks, jsonBlock{start: start, end: i + 1})
+			}
+		}
+	}
+	return blocks
+}
+
+func parseToolCallJSON(raw string) (openAIToolCall, bool) {
+	var payload struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return openAIToolCall{}, false
+	}
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		return openAIToolCall{}, false
+	}
+
+	argText := strings.TrimSpace(string(payload.Arguments))
+	if argText == "" || argText == "null" {
+		argText = "{}"
+	}
+
+	return openAIToolCall{
+		Type: "function",
+		Function: openAIToolFunction{
+			Name:      name,
+			Arguments: argText,
+		},
+	}, true
+}
+
+func removeJSONBlock(content string, start, end int) string {
+	left := strings.TrimRight(content[:start], " \t\r\n")
+	left = trimTrailingFence(left)
+	right := strings.TrimLeft(content[end:], " \t\r\n")
+	right = trimLeadingFence(right)
+
+	switch {
+	case left == "":
+		return strings.TrimSpace(right)
+	case right == "":
+		return strings.TrimSpace(left)
+	default:
+		return strings.TrimSpace(left + "\n\n" + right)
+	}
+}
+
+func trimTrailingFence(s string) string {
+	s = strings.TrimRight(s, " \t\r\n")
+	if strings.HasSuffix(s, "```") {
+		return strings.TrimRight(s[:len(s)-3], " \t\r\n")
+	}
+	return s
+}
+
+func trimLeadingFence(s string) string {
+	s = strings.TrimLeft(s, " \t\r\n")
+	if strings.HasPrefix(s, "```") {
+		return strings.TrimLeft(s[3:], " \t\r\n")
+	}
+	return s
 }
 
 func convertToOllamaOutgoingCalls(calls []openAIToolCall) []ollamaOutgoingToolCall {

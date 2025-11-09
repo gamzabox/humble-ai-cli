@@ -78,3 +78,15 @@
 - [x] tool call mode 설정과 /set-tool-mode 커맨드를 검증하는 테스트를 추가한다.
 - [x] tool call mode 설정 및 커맨드 구현을 완료한다.
 - [x] `go test ./...` 로 전체 테스트를 실행해 통과시킨다.
+
+# Ollama Tool Schema Prompt 삽입
+- [x] Ollama tool schema 전달 요구사항을 REQUIREMENTS.md에 반영한다.
+- [x] Ollama tool schema 프롬프트 삽입 동작을 검증하는 테스트를 먼저 작성한다.
+- [x] Ollama provider가 tools 필드 대신 system prompt에 schema를 삽입하도록 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Ollama Manual Tool Call 파싱
+- [x] Ollama 함수 호출 JSON 파싱 요구사항을 REQUIREMENTS.md에 반영한다.
+- [x] JSON 형태의 tool call 응답을 처리하는 테스트를 추가한다.
+- [x] Ollama provider가 manual function call JSON 을 MCP tool 호출로 변환하도록 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
