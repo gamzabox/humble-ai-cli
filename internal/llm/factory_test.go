@@ -15,12 +15,13 @@ import (
 	"gamzabox.com/humble-ai-cli/internal/config"
 )
 
-func TestBuildOllamaRequestIncludesTools(t *testing.T) {
+func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	req := ChatRequest{
-		Model:  "llama3.2",
-		Stream: true,
+		Model:        "llama3.2",
+		Stream:       true,
+		SystemPrompt: "Base prompt.",
 		Messages: []Message{
 			{Role: "user", Content: "what is the weather in tokyo?"},
 		},
@@ -28,6 +29,8 @@ func TestBuildOllamaRequestIncludesTools(t *testing.T) {
 			{
 				Name:        "get_weather",
 				Description: "Get the weather in a given city",
+				Server:      "weather",
+				Method:      "get_weather",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -52,19 +55,47 @@ func TestBuildOllamaRequestIncludesTools(t *testing.T) {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 
-	if len(payload.Tools) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(payload.Tools))
+	if len(payload.Tools) != 0 {
+		t.Fatalf("expected tools field to be omitted, got %d entries", len(payload.Tools))
 	}
 
-	tool := payload.Tools[0]
-	if tool.Type != "function" {
-		t.Fatalf("expected tool type function, got %q", tool.Type)
+	if len(payload.Messages) == 0 {
+		t.Fatalf("expected at least one message")
 	}
-	if tool.Function.Name != "get_weather" {
-		t.Fatalf("expected tool name get_weather, got %q", tool.Function.Name)
+
+	systemMsg := payload.Messages[0]
+	if systemMsg.Role != "system" {
+		t.Fatalf("expected first message to be system, got %s", systemMsg.Role)
 	}
-	if len(tool.Function.Parameters) == 0 {
-		t.Fatalf("expected tool parameters to be present")
+	if !strings.Contains(systemMsg.Content, "Base prompt.") {
+		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "CALL_FUNCTION:") {
+		t.Fatalf("expected CALL_FUNCTION instructions in system prompt")
+	}
+	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
+		t.Fatalf("expected connected server heading in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "## weather") {
+		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "### Available Tools") {
+		t.Fatalf("expected available tools section in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "- get_weather: Get the weather in a given city") {
+		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "Input Schema:") {
+		t.Fatalf("expected input schema block in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "FUNCTION_CALL:") {
+		t.Fatalf("expected FUNCTION_CALL block in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"name": "function name"`) {
+		t.Fatalf("expected FUNCTION_CALL schema example in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"name": "resolve-library-id"`) {
+		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
 	}
 }
 
@@ -202,8 +233,17 @@ finished:
 	if len(firstBody) == 0 {
 		t.Fatalf("first request body not captured")
 	}
-	if !strings.Contains(string(firstBody), `"tools"`) {
-		t.Fatalf("first request missing tools: %s", string(firstBody))
+	if strings.Contains(string(firstBody), `"tools"`) {
+		t.Fatalf("first request should not send tools field: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
+		t.Fatalf("first request missing CALL_FUNCTION instructions: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
+		t.Fatalf("first request missing FUNCTION_CALL instructions: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
+		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
 	}
 	if len(secondBody) == 0 {
 		t.Fatalf("second request body not captured")
@@ -246,6 +286,164 @@ finished:
 	}
 	if !foundToolRole {
 		t.Fatalf("expected tool role message in second request")
+	}
+}
+
+func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
+	t.Parallel()
+
+	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
+
+	var (
+		requestCount int
+		firstBody    []byte
+		secondBody   []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		defer r.Body.Close()
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+
+		requestCount++
+		switch requestCount {
+		case 1:
+			firstBody = body
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, fmt.Sprintf(`{"message":{"role":"assistant","content":%q}, "done": false}`+"\n", manualContent))
+			io.WriteString(w, `{"message":{"role":"assistant","content":""}, "done": true}`+"\n")
+		case 2:
+			secondBody = body
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"message":{"role":"assistant","content":"Docs summary."}, "done": false}`+"\n")
+			io.WriteString(w, `{"message":{"role":"assistant","content":""}, "done": true}`+"\n")
+		default:
+			t.Fatalf("unexpected request count: %d", requestCount)
+		}
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "llama3.2",
+		Provider: "ollama",
+		BaseURL:  server.URL,
+	}
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	req := ChatRequest{
+		Model:  "llama3.2",
+		Stream: true,
+		Messages: []Message{
+			{Role: "user", Content: "Please use available tools."},
+		},
+		Tools: []ToolDefinition{
+			{
+				Name:        "resolve-library-id",
+				Description: "Resolve Context7 library IDs",
+				Server:      "context7",
+				Method:      "resolve-library-id",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"libraryName": map[string]any{"type": "string"},
+					},
+					"required": []any{"libraryName"},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expect := func() StreamChunk {
+		t.Helper()
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done before chunk: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	if chunk := expect(); chunk.Type != ChunkThinking {
+		t.Fatalf("expected thinking chunk, got %v", chunk.Type)
+	}
+	if chunk := expect(); chunk.Type != ChunkToken {
+		t.Fatalf("expected token chunk before manual tool call, got %v", chunk.Type)
+	}
+
+	callChunk := expect()
+	if callChunk.Type != ChunkToolCall {
+		t.Fatalf("expected tool call chunk, got %v", callChunk.Type)
+	}
+	if callChunk.ToolCall == nil {
+		t.Fatalf("tool call payload missing")
+	}
+	if callChunk.ToolCall.Server != "context7" {
+		t.Fatalf("unexpected server %s", callChunk.ToolCall.Server)
+	}
+	if callChunk.ToolCall.Method != "resolve-library-id" {
+		t.Fatalf("unexpected method %s", callChunk.ToolCall.Method)
+	}
+
+	if err := callChunk.ToolCall.Respond(ctx, ToolResult{Content: `{"context7CompatibleLibraryID":"/context/react-select"}`}); err != nil {
+		t.Fatalf("respond tool call: %v", err)
+	}
+
+	tokenChunk := expect()
+	if tokenChunk.Type != ChunkToken || tokenChunk.Content != "Docs summary." {
+		t.Fatalf("unexpected assistant token chunk: %#v", tokenChunk)
+	}
+	if doneChunk := expect(); doneChunk.Type != ChunkDone {
+		t.Fatalf("expected done chunk, got %v", doneChunk.Type)
+	}
+
+	if len(firstBody) == 0 {
+		t.Fatalf("expected first request body")
+	}
+	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
+		t.Fatalf("system prompt missing in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
+		t.Fatalf("FUNCTION_CALL block missing in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
+		t.Fatalf("connected server heading missing in first request: %s", string(firstBody))
+	}
+
+	var secondPayload ollamaRequestPayload
+	if err := json.Unmarshal(secondBody, &secondPayload); err != nil {
+		t.Fatalf("unmarshal second payload: %v", err)
+	}
+	foundTool := false
+	for _, msg := range secondPayload.Messages {
+		if msg.Role == "tool" {
+			foundTool = true
+			break
+		}
+	}
+	if !foundTool {
+		t.Fatalf("expected tool role message in second pass payload: %+v", secondPayload.Messages)
 	}
 }
 

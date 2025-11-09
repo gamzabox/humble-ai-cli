@@ -300,9 +300,24 @@ func (a *App) snapshotFunctions() map[string][]MCPFunction {
 func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFunction) string {
 	var builder strings.Builder
 
-	builder.WriteString("You are the humble-ai command line assistant. MCP server tooling is available.\n")
-	builder.WriteString("When you need external data or actions, request an MCP call by emitting a tool call chunk with the target server, method, and JSON arguments.\n")
-	builder.WriteString("Always wait for tool results before finalizing the response.\n")
+	builder.WriteString("You are the humble-ai command line assistant. MCP server tooling is available.\n\n")
+	builder.WriteString("When you need external data or actions, follow this process:\n\n")
+	builder.WriteString("1. If a tool call is required, emit a tool call chunk specifying:\n")
+	builder.WriteString("   - name\n")
+	builder.WriteString("   - arguments\n\n")
+	builder.WriteString("2. After a tool call returns results:\n")
+	builder.WriteString("   - Analyze the results\n")
+	builder.WriteString("   - If more tool calls are needed, continue calling tools\n")
+	builder.WriteString("   - Do NOT produce a final answer until all required tool calls are complete\n\n")
+	builder.WriteString("3. Only after all necessary tool calls are finished:\n")
+	builder.WriteString("   - Integrate the collected results\n")
+	builder.WriteString("   - Provide the final, well-structured response to the user\n\n")
+	builder.WriteString("RULES:\n")
+	builder.WriteString("- **Never generate natural language message USER NOT REQUESTED**\n")
+	builder.WriteString("- You may call multiple tools in sequence if needed.\n")
+	builder.WriteString("- Never generate a natural language response together with a JSON for a tool call.\n")
+	builder.WriteString("- Always wait for each tool call result before deciding the next action.\n")
+	builder.WriteString("- The final response must include the integrated outcome of all tool call results.\n")
 
 	if len(servers) > 0 {
 		builder.WriteString("\nAvailable MCP servers and functions:\n")
@@ -863,10 +878,8 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 			if serverDesc != "" {
 				desc = fmt.Sprintf("%s — %s", serverDesc, desc)
 			}
-			desc = fmt.Sprintf("%s (server: %s)", desc, srv.Name)
-			toolName := fmt.Sprintf("%s__%s", srv.Name, fn.Name)
 			defs = append(defs, llm.ToolDefinition{
-				Name:        toolName,
+				Name:        fn.Name,
 				Description: desc,
 				Server:      srv.Name,
 				Method:      fn.Name,

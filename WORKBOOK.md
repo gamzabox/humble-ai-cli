@@ -131,3 +131,286 @@ curl http://localhost:11434/api/chat -d '{
   - 커맨드: /set-tool-mode [auto|manual]
   - auto 와 manual 이 아닌 다른 값 입력시 auto 와 manual 둘중 하나를 입력 하라는 메시지 출력
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Ollama API 의 tools 를 사용하지 않고 tool schema 를 System Prompt 에 직접 설정 하도록 수정
+- 다음과 같이 Tool schema 를 System Prompt 에 추가
+```
+CALL_FUNCTION:
+Never use natural language when you call function.
+
+
+FUNCTIONS:
+[
+  {
+    "name": "resolve-library-id",
+    "description": "Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "libraryName": { 
+          "type": "string", 
+          "description": "Library name to search for and retrieve a Context7-compatible library ID." 
+        }
+      },
+      "required": ["libraryName"]
+    }
+  },
+  {
+    "name": "get-library-docs",
+    "description": "Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context7CompatibleLibraryID": { 
+          "type": "string", 
+          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'." 
+        },
+        "topic": {
+          "type": "string", 
+          "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')." 
+        }
+      },
+      "required": ["context7CompatibleLibraryID"]
+    }
+  }
+]
+
+FUNCTION_CALL:
+- Schema
+{
+	"name": "function name",
+	"arguments": {
+	  "arg1 name": "argument1 value",
+	  "arg2 name": "argument2 value",
+	}
+}
+- Example
+{
+	"name": "resolve-library-id",
+	"arguments": {
+	  "libraryName": "java"
+	}
+}
+```
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# route intent 를 통한 단계적 Tooling 구현
+1. 기존에 항상 전체 MCP 에 대한 Tool Schema 를 전달하는 방식을 수정해서 이제는 route intent 를 추가해 call_tool 또는 finalize 를 우선 선택 하도록 수정
+2. 최초 사용자 프롬프트 입력시 System prompt 에 Tool List 와 Description 을 추가하고 Tool Schema 는 route_intent 만 추가, tool_choice 값도 function: route intent 로 설정
+   - System prompt 에 route_intent tool 정의와 route_intent 을 호출하라는 내용이 포함됨
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call route_intent function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+    },
+    {
+      "role": "user",
+      "content": "Context7 에서 java 문서를 확인해 java version MCP SDK 사용법 정리해줘"
+    }
+  ],
+  "options": { "temperature": 0.0 }
+}
+```
+
+3. 라우팅 응답이 call_tool 일 경우 다음과 같이 tool 이름이 fetch_html 으로 확인 할 수 있음
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "created_at": "2025-11-09T11:24:08.753147128Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n\t\"name\": \"route_intent\",\n\t\"arguments\": {\n\t\t\"decision\": \"call_tool\",\n\t\t\"tool\": \"resolve-library-id\"\n\t}\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 12182151039,
+  "load_duration": 7017040389,
+  "prompt_eval_count": 838,
+  "prompt_eval_duration": 4069810656,
+  "eval_count": 36,
+  "eval_duration": 1029084528
+}
+```
+
+1. 이제 LLM 이 선택한 툴 resolve-library-id 에 대한 구체적인 Schema 를 설정하고 resolve-library-id 를 호출 하도록 system prompt 를 설정해 LLM 에게 전달(route_intent 호출에 대한 assistant content 는 context 에 포함되지 않음에 주의할것)
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nCALL_FUNCTION:\r\nYou have to call function **resolve-library-id**\r\nNever use natural language.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"resolve-library-id\",\r\n\t\"description\": \"Resolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"libraryName\": { \"type\": \"string\", \"description\": \"Library name to search for and retrieve a Context7-compatible library ID.\" }\r\n\t  },\r\n\t  \"required\": [\"libraryName\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+    },
+    {
+      "role": "user",
+      "content": "Context7 에서 java 문서를 확인해 java version MCP SDK 사용법 정리해줘"
+    }
+  ],
+  "options": { "temperature": 0.0 }
+}
+
+```
+
+1. LLM 이 다음과 같이 Tool Call 요청을 보냄
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "created_at": "2025-11-09T11:36:23.088575044Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 11538756923,
+  "load_duration": 7255712822,
+  "prompt_eval_count": 417,
+  "prompt_eval_duration": 3497780242,
+  "eval_count": 27,
+  "eval_duration": 716591005
+}
+```
+
+1. Assistant 는 resolve-library-id 를 호출하고 결과를 Context 에 추가. 여기서 LLM 이 추가로 Tool call 이 필요 할 수 있으니 route intent 를 다시 보냄(Assistant 의 MCP Tool 요청이 context 에 포함된 것에 주의 할 것)
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call **route_intent** function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+    },
+    {
+      "role": "user",
+      "content": "Context7 에서 java 문서를 확인해 java version MCP SDK 사용법 정리해줘"
+    },
+    {
+	  "role": "assistant",
+      "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+    },
+    {
+      "role": "tool",
+      "name": "libraryName",
+      "content": "Architecture\r\nmcp stack\r\nThe SDK follows a layered architecture with clear separation of concerns:\r\n\r\nClient\/Server Layer: Both use McpSession for sync\/async operations, with McpClient handling client-side protocol operations and McpServer managing server-side protocol operations.\r\n\r\nSession Layer (McpSession): Manages communication patterns and state using DefaultMcpSession implementation.\r\n\r\nTransport Layer (McpTransport): Handles JSON-RPC message serialization\/deserialization via:\r\n\r\nStdioTransport (stdin\/stdout) in the core module\r\n\r\nHTTP SSE transports in dedicated transport modules (Java HttpClient, Spring WebFlux, Spring WebMVC)\r\n\r\nFollowing class diagram illustrates the layered architecture of the MCP SDK, showing the relationships between core interfaces (McpTransport, McpSession), their implementations, and the client\/server components. It highlights how the transport layer connects to sessions, which in turn support both synchronous and asynchronous client\/server implementations.\r\n\r\nspring ai mcp uml classdiagram\r\nKey Interactions:\r\n\r\nClient\/Server Initialization: Transport setup, protocol compatibility check, capability negotiation, and implementation details exchange.\r\n\r\nMessage Flow: JSON-RPC message handling with validation, type-safe response processing, and error handling.\r\n\r\nResource Management: Resource discovery, URI template-based access, subscription system, and content retrieval.\r\n\r\nPrompt System: Discovery, parameter-based retrieval, change notifications, and content management.\r\n\r\nTool Execution: Discovery, parameter validation, timeout-aware execution, and result processing."
+    }
+  ],
+  "options": { "temperature": 0.0 }
+}
+```
+
+1. 라우팅 응답이 다음과 같이 finalize 일 경우 최종 답변을 생성하도록 system prompt를 설정하고 LLM 을 호출 함
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "created_at": "2025-11-09T11:24:08.753147128Z",
+  "message": {
+    "role": "assistant",
+    "content": "{\n\t\"name\": \"route_intent\",\n\t\"arguments\": {\"decision\": \"finalize\"}\n}"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 12182151039,
+  "load_duration": 7017040389,
+  "prompt_eval_count": 838,
+  "prompt_eval_duration": 4069810656,
+  "eval_count": 36,
+  "eval_duration": 1029084528
+}
+```
+
+1. 최종 답변을 생성하도록 system prompt를 설정하고 LLM 을 호출 함 (최종 자연서 메시지 생성시에는 stream true로 설정)
+```json
+{
+  "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nFINALIZE:\r\n- You have to generate **final natural message**.\r\n"
+    },
+    {
+      "role": "user",
+      "content": "Context7 에서 java 문서를 확인해 java version MCP SDK 사용법 정리해줘"
+    },
+    {
+	  "role": "assistant",
+      "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+    },
+    {
+      "role": "tool",
+      "name": "libraryName",
+      "content": "Architecture\r\nmcp stack\r\nThe SDK follows a layered architecture with clear separation of concerns:\r\n\r\nClient\/Server Layer: Both use McpSession for sync\/async operations, with McpClient handling client-side protocol operations and McpServer managing server-side protocol operations.\r\n\r\nSession Layer (McpSession): Manages communication patterns and state using DefaultMcpSession implementation.\r\n\r\nTransport Layer (McpTransport): Handles JSON-RPC message serialization\/deserialization via:\r\n\r\nStdioTransport (stdin\/stdout) in the core module\r\n\r\nHTTP SSE transports in dedicated transport modules (Java HttpClient, Spring WebFlux, Spring WebMVC)\r\n\r\nFollowing class diagram illustrates the layered architecture of the MCP SDK, showing the relationships between core interfaces (McpTransport, McpSession), their implementations, and the client\/server components. It highlights how the transport layer connects to sessions, which in turn support both synchronous and asynchronous client\/server implementations.\r\n\r\nspring ai mcp uml classdiagram\r\nKey Interactions:\r\n\r\nClient\/Server Initialization: Transport setup, protocol compatibility check, capability negotiation, and implementation details exchange.\r\n\r\nMessage Flow: JSON-RPC message handling with validation, type-safe response processing, and error handling.\r\n\r\nResource Management: Resource discovery, URI template-based access, subscription system, and content retrieval.\r\n\r\nPrompt System: Discovery, parameter-based retrieval, change notifications, and content management.\r\n\r\nTool Execution: Discovery, parameter validation, timeout-aware execution, and result processing."
+    }
+  ],
+  "options": { "temperature": 0.0 }
+}
+```
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Ollama API 의 tool schema 를 System Prompt 에 설정 하는 부분을 다음의 예제와 같이 변경 해줘
+---
+CALL_FUNCTION:
+Never use natural language when you call function.
+
+
+FUNCTIONS:
+
+# Connected MCP Servers
+
+## context7
+
+### Available Tools
+- resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+    Input Schema:
+    {
+      "type": "object",
+      "properties": {
+        "libraryName": {
+          "type": "string",
+          "description": "Library name to search for and retrieve a Context7-compatible library ID."
+        }
+      },
+      "required": [
+        "libraryName"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+
+- get-library-docs: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+    Input Schema:
+    {
+      "type": "object",
+      "properties": {
+        "context7CompatibleLibraryID": {
+          "type": "string",
+          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
+        },
+        "tokens": {
+          "type": "number",
+          "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
+        }
+      },
+      "required": [
+        "context7CompatibleLibraryID"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+---
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

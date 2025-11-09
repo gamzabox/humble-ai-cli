@@ -2,7 +2,81 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool 정의를 `tools` 필드로 전달하여 Ollama 에서도 MCP 기능을 사용할 수 있어야 함
+- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 예제와 같이 System Prompt 에 직접 포함해 전달한다.
+  ```
+  CALL_FUNCTION:
+  Never use natural language when you call function.
+
+
+  FUNCTIONS:
+
+  # Connected MCP Servers
+
+  ## context7
+
+  ### Available Tools
+  - resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+      Input Schema:
+      {
+        "type": "object",
+        "properties": {
+          "libraryName": {
+            "type": "string",
+            "description": "Library name to search for and retrieve a Context7-compatible library ID."
+          }
+        },
+        "required": [
+          "libraryName"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+
+  - get-library-docs: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+      Input Schema:
+      {
+        "type": "object",
+        "properties": {
+          "context7CompatibleLibraryID": {
+            "type": "string",
+            "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+          },
+          "topic": {
+            "type": "string",
+            "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
+          },
+          "tokens": {
+            "type": "number",
+            "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
+          }
+        },
+        "required": [
+          "context7CompatibleLibraryID"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+  ```
+- System prompt 의 마지막에는 다음 FUNCTION_CALL 참고 블록을 추가한다.
+  ```
+  FUNCTION_CALL:
+  - Schema
+  {
+  	"name": "function name",
+  	"arguments": {
+  	  "arg1 name": "argument1 value",
+  	  "arg2 name": "argument2 value",
+  	}
+  }
+  - Example
+  {
+  	"name": "resolve-library-id",
+  	"arguments": {
+  	  "libraryName": "java"
+  	}
+  }
+  ```
+- Ollama 모델이 위 `CALL_FUNCTION` 규칙에 따라 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.
 - 현재 활성화된 model 이 없는 상태에서 질문을 입력하면 /set-model 커맨트를 통해 model 을 선택하도록 가이드 하고, config.json 에 설정된 model 이 없을경우 config.json 에 model 설정을 추가 하라고 가이드 한다.
 - 프로그램 실행시 새로운 세션을 메모리상에서만 생성하고 파일로 저장하지 않는다. 대화 세션의 파일 저장은 최초 LLM 으로 부터 답변을 받은 시점 부터 이다.
