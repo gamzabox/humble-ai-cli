@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -856,35 +857,82 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		return ""
 	}
 
-	type schemaTool struct {
-		Name        string         `json:"name"`
-		Description string         `json:"description,omitempty"`
-		Parameters  map[string]any `json:"parameters"`
+	type toolEntry struct {
+		name        string
+		description string
+		parameters  map[string]any
 	}
 
-	items := make([]schemaTool, 0, len(defs))
+	groups := make(map[string][]toolEntry)
 	for _, def := range defs {
+		server := strings.TrimSpace(def.Server)
+		if server == "" {
+			server = "default"
+		}
+
 		params := cloneAnyMap(def.Parameters)
 		if params == nil {
 			params = defaultToolSchema()
 		}
-		items = append(items, schemaTool{
-			Name:        def.Name,
-			Description: def.Description,
-			Parameters:  params,
+
+		desc := strings.TrimSpace(def.Description)
+		if desc == "" {
+			desc = "No description provided."
+		}
+
+		groups[server] = append(groups[server], toolEntry{
+			name:        def.Name,
+			description: desc,
+			parameters:  params,
 		})
 	}
 
-	toolsJSON, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		return ""
+	serverNames := make([]string, 0, len(groups))
+	for server := range groups {
+		serverNames = append(serverNames, server)
 	}
+	sort.Strings(serverNames)
 
 	var builder strings.Builder
-	builder.WriteString("CALL_FUNCTION:\nNever use natural language when you call function.\n\n\nFUNCTIONS:\n")
-	builder.Write(toolsJSON)
+	builder.WriteString("CALL_FUNCTION_RULES:\n- Never use natural language when you call function.\n\n\nFUNCTIONS:\n\n# Connected MCP Servers\n")
+
+	for _, server := range serverNames {
+		builder.WriteString("\n## ")
+		builder.WriteString(server)
+		builder.WriteString("\n\n### Available Tools\n")
+
+		tools := groups[server]
+		sort.Slice(tools, func(i, j int) bool {
+			return tools[i].name < tools[j].name
+		})
+
+		for _, tool := range tools {
+			builder.WriteString("- ")
+			builder.WriteString(tool.name)
+			builder.WriteString(": ")
+			builder.WriteString(tool.description)
+			builder.WriteByte('\n')
+			builder.WriteString("    Input Schema:\n")
+
+			schemaJSON, err := json.MarshalIndent(tool.parameters, "", "  ")
+			if err != nil {
+				builder.WriteString("    {}\n\n")
+				continue
+			}
+
+			lines := strings.Split(string(schemaJSON), "\n")
+			for _, line := range lines {
+				builder.WriteString("    ")
+				builder.WriteString(line)
+				builder.WriteByte('\n')
+			}
+			builder.WriteByte('\n')
+		}
+	}
+
 	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t}\n}\n- Example\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t}\n}")
-	return builder.String()
+
+	return strings.TrimRight(builder.String(), "\n")
 }
 
 func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]byte, error) {

@@ -356,3 +356,61 @@ FUNCTION_CALL:
 }
 ```
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Ollama API 의 tool schema 를 System Prompt 에 설정 하는 부분을 다음의 예제와 같이 변경 해줘
+---
+CALL_FUNCTION:
+Never use natural language when you call function.
+
+
+FUNCTIONS:
+
+# Connected MCP Servers
+
+## context7
+
+### Available Tools
+- resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+    Input Schema:
+    {
+      "type": "object",
+      "properties": {
+        "libraryName": {
+          "type": "string",
+          "description": "Library name to search for and retrieve a Context7-compatible library ID."
+        }
+      },
+      "required": [
+        "libraryName"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+
+- get-library-docs: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+    Input Schema:
+    {
+      "type": "object",
+      "properties": {
+        "context7CompatibleLibraryID": {
+          "type": "string",
+          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
+        },
+        "tokens": {
+          "type": "number",
+          "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
+        }
+      },
+      "required": [
+        "context7CompatibleLibraryID"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+---
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

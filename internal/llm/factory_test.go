@@ -29,6 +29,8 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 			{
 				Name:        "get_weather",
 				Description: "Get the weather in a given city",
+				Server:      "weather",
+				Method:      "get_weather",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -71,11 +73,29 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "CALL_FUNCTION:") {
 		t.Fatalf("expected CALL_FUNCTION instructions in system prompt")
 	}
-	if !strings.Contains(systemMsg.Content, `"name": "get_weather"`) {
-		t.Fatalf("expected tool schema to list get_weather, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
+		t.Fatalf("expected connected server heading in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "## weather") {
+		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "### Available Tools") {
+		t.Fatalf("expected available tools section in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "- get_weather: Get the weather in a given city") {
+		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "Input Schema:") {
+		t.Fatalf("expected input schema block in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "FUNCTION_CALL:") {
-		t.Fatalf("expected FUNCTION_CALL block in system prompt")
+		t.Fatalf("expected FUNCTION_CALL block in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"name": "function name"`) {
+		t.Fatalf("expected FUNCTION_CALL schema example in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"name": "resolve-library-id"`) {
+		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
 	}
 }
 
@@ -219,6 +239,12 @@ finished:
 	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
 		t.Fatalf("first request missing CALL_FUNCTION instructions: %s", string(firstBody))
 	}
+	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
+		t.Fatalf("first request missing FUNCTION_CALL instructions: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
+		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
+	}
 	if len(secondBody) == 0 {
 		t.Fatalf("second request body not captured")
 	}
@@ -266,7 +292,7 @@ finished:
 func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	t.Parallel()
 
-	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
+	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
 
 	var (
 		requestCount int
@@ -322,7 +348,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 		},
 		Tools: []ToolDefinition{
 			{
-				Name:        "context7__resolve-library-id",
+				Name:        "resolve-library-id",
 				Description: "Resolve Context7 library IDs",
 				Server:      "context7",
 				Method:      "resolve-library-id",
@@ -397,6 +423,12 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
 		t.Fatalf("system prompt missing in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
+		t.Fatalf("FUNCTION_CALL block missing in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
+		t.Fatalf("connected server heading missing in first request: %s", string(firstBody))
 	}
 
 	var secondPayload ollamaRequestPayload

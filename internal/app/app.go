@@ -878,10 +878,8 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 			if serverDesc != "" {
 				desc = fmt.Sprintf("%s — %s", serverDesc, desc)
 			}
-			desc = fmt.Sprintf("%s (server: %s)", desc, srv.Name)
-			toolName := fmt.Sprintf("%s__%s", srv.Name, fn.Name)
 			defs = append(defs, llm.ToolDefinition{
-				Name:        toolName,
+				Name:        fn.Name,
 				Description: desc,
 				Server:      srv.Name,
 				Method:      fn.Name,

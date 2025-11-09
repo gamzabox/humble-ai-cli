@@ -2,47 +2,63 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 포맷을 System Prompt 에 직접 포함해 전달한다.
+- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 예제와 같이 System Prompt 에 직접 포함해 전달한다.
   ```
   CALL_FUNCTION:
   Never use natural language when you call function.
 
 
   FUNCTIONS:
-  [
-    {
-      "name": "resolve-library-id",
-      "description": "Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.",
-      "parameters": {
+
+  # Connected MCP Servers
+
+  ## context7
+
+  ### Available Tools
+  - resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+      Input Schema:
+      {
         "type": "object",
-        "additionalProperties": false,
         "properties": {
-        "libraryName": { "type": "string", "description": "Library name to search for and retrieve a Context7-compatible library ID." }
-        },
-        "required": ["libraryName"]
-      }
-    },
-    {
-      "name": "get-library-docs",
-      "description": "Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "context7CompatibleLibraryID": { 
-            "type": "string", 
-            "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'." 
-          },
-          "topic": {
-            "type": "string", 
-            "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')." 
+          "libraryName": {
+            "type": "string",
+            "description": "Library name to search for and retrieve a Context7-compatible library ID."
           }
         },
-        "required": ["context7CompatibleLibraryID"]
+        "required": [
+          "libraryName"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
       }
-    }
-  ]
 
+  - get-library-docs: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+      Input Schema:
+      {
+        "type": "object",
+        "properties": {
+          "context7CompatibleLibraryID": {
+            "type": "string",
+            "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+          },
+          "topic": {
+            "type": "string",
+            "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
+          },
+          "tokens": {
+            "type": "number",
+            "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
+          }
+        },
+        "required": [
+          "context7CompatibleLibraryID"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+  ```
+- System prompt 의 마지막에는 다음 FUNCTION_CALL 참고 블록을 추가한다.
+  ```
   FUNCTION_CALL:
   - Schema
   {
