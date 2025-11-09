@@ -130,7 +130,7 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 
 	logger := LoggerFromContext(ctx)
 	if logger != nil {
-		logger.Debugf("LLM request: %s", string(payload))
+		logger.Debugf("Open AI LLM request: %s", string(payload))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(payload))
@@ -645,7 +645,7 @@ func (p *ollamaProvider) streamOnce(
 
 	logger := LoggerFromContext(ctx)
 	if logger != nil {
-		logger.Debugf("LLM request: %s", string(payload))
+		logger.Debugf("Ollama LLM request: %s", string(payload))
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(payload))
