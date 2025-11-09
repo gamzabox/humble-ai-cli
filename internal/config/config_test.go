@@ -18,7 +18,8 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 
 	cfgPath := filepath.Join(configDir, "config.json")
 	input := config.Config{
-		LogLevel: "debug",
+		LogLevel:     "debug",
+		ToolCallMode: "auto",
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -61,7 +62,8 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	store := config.NewFileStore(home)
 
 	cfg := config.Config{
-		LogLevel: "warn",
+		LogLevel:     "warn",
+		ToolCallMode: "manual",
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -87,6 +89,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	if got.LogLevel != cfg.LogLevel {
 		t.Fatalf("unexpected log level in persisted config: %s", got.LogLevel)
 	}
+	if got.ToolCallMode != cfg.ToolCallMode {
+		t.Fatalf("unexpected toolCallMode in persisted config: %s", got.ToolCallMode)
+	}
 	active, ok := got.ActiveModel()
 	if !ok {
 		t.Fatalf("expected active model in persisted config")
@@ -105,6 +110,30 @@ func TestConfigValidateRejectsInvalidLogLevel(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation error for invalid log level")
+	}
+}
+
+func TestConfigValidateRejectsInvalidToolCallMode(t *testing.T) {
+	cfg := config.Config{
+		ToolCallMode: "sometimes",
+		Models: []config.Model{
+			{Name: "model", Provider: "openai", Active: true},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for invalid toolCallMode")
+	}
+}
+
+func TestConfigEffectiveToolCallModeDefaultsToManual(t *testing.T) {
+	cfg := config.Config{}
+	if got := cfg.EffectiveToolCallMode(); got != config.ToolCallModeManual {
+		t.Fatalf("expected default tool call mode to be manual, got %s", got)
+	}
+
+	cfg.ToolCallMode = "auto"
+	if got := cfg.EffectiveToolCallMode(); got != config.ToolCallModeAuto {
+		t.Fatalf("expected explicit auto mode, got %s", got)
 	}
 }
 

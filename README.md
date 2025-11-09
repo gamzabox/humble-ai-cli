@@ -11,6 +11,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/help` – show available commands.
   - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
+  - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
   - `/mcp` – display enabled MCP servers and the functions they expose.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
@@ -43,30 +44,53 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "baseUrl": "http://localhost:11434"
     }
   ],
-  "logLevel": "debug"
+  "logLevel": "debug",
+  "toolCallMode": "manual"
 }
 ```
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.
+Set `toolCallMode` to `auto` to automatically run approved MCP tool calls without the confirmation prompt (the default `manual` mode keeps the confirmation step). You can also adjust this within the CLI via `/set-tool-mode auto` or `/set-tool-mode manual`.
 
 ### Logging
 - Logs are written to `~/.humble-ai-cli/logs/application-hac-YYYY-MM-DD.log`.
 - Set `logLevel` (debug, info, warn, error) in `config.json` to control verbosity. Debug level includes detailed LLM and MCP traces.
 
 ## MCP Server Configuration
-- Create the MCP directory if it does not exist: `mkdir -p ~/.humble-ai-cli/mcp_servers`.
-- Add one JSON file per server. Each file must set `enabled` to `true` for the CLI to load it. Minimal example saved as `~/.humble-ai-cli/mcp_servers/calculator.json`:
+- Ensure the config directory exists: `mkdir -p ~/.humble-ai-cli`.
+- Define every MCP server inside a single file `~/.humble-ai-cli/mcp-servers.json`. The root object must contain `mcpServers`, whose properties are server names. Example:
 ```json
 {
-  "name": "calculator",
-  "description": "Adds or subtracts numbers for quick estimates.",
-  "enabled": true,
-  "command": "/usr/local/bin/mcp-calculator",
-  "args": ["--port=0"]
+  "mcpServers": {
+    "calculator": {
+      "description": "Adds or subtracts numbers for quick estimates.",
+      "enabled": true,
+      "command": "/usr/local/bin/mcp-calculator",
+      "args": ["--port=0"],
+      "env": {
+        "API_TOKEN": "secret"
+      }
+    },
+    "remote-sse": {
+      "description": "Hosted SSE tool endpoint.",
+      "url": "https://your-server.example.com/mcp/sse",
+      "transport": "sse",
+      "env": {
+        "Authorization": "Bearer token"
+      }
+    },
+    "remote-http": {
+      "description": "Streamable HTTP endpoint.",
+      "url": "https://your-server.example.com/mcp",
+      "transport": "http"
+    }
+  }
 }
 ```
-- When the LLM requests a tool call, the CLI prints the server name and description, then asks `Call now? (Y/N)`. Enter `Y` to execute or `N` to cancel.
+- `command` servers spawn a local process (passing `args` and `env`).
+- `url` servers connect to remote MCP servers via SSE (`transport: "sse"`, default) or streamable HTTP (`transport: "http"`). For remote servers, `env` entries are sent as HTTP headers.
+- When the LLM requests a tool call, the CLI prints the server name and description. In `manual` mode it then asks `Call now? (Y/N)`; in `auto` mode it executes immediately after printing the summary. Toggle the behaviour with `/set-tool-mode`.
 - On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
 
 ### Prompting Example

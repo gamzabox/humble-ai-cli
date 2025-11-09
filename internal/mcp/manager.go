@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,11 +31,50 @@ type Function struct {
 }
 
 type serverConfig struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Enabled     bool     `json:"enabled"`
-	Command     string   `json:"command,omitempty"`
-	Args        []string `json:"args,omitempty"`
+	Name        string
+	Description string
+	Enabled     bool
+	Command     string
+	Args        []string
+	Env         map[string]string
+	URL         string
+	Transport   string
+}
+
+const (
+	transportCommand = "command"
+	transportSSE     = "sse"
+	transportHTTP    = "http"
+)
+
+func (cfg serverConfig) connectionKind() (string, error) {
+	command := strings.TrimSpace(cfg.Command)
+	url := strings.TrimSpace(cfg.URL)
+
+	if command != "" && url != "" {
+		return "", fmt.Errorf("mcp server %q must define either a command or url", cfg.Name)
+	}
+	if command == "" && url == "" {
+		return "", fmt.Errorf("mcp server %q has no command or url configured", cfg.Name)
+	}
+
+	if command != "" {
+		return transportCommand, nil
+	}
+
+	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
+	if transport == "" {
+		transport = transportSSE
+	}
+
+	switch transport {
+	case transportSSE:
+		return transportSSE, nil
+	case transportHTTP:
+		return transportHTTP, nil
+	default:
+		return "", fmt.Errorf("mcp server %q has unsupported transport %q", cfg.Name, cfg.Transport)
+	}
 }
 
 type sessionDialer func(context.Context, serverConfig) (*sessionHolder, error)
@@ -176,9 +216,9 @@ func (m *Manager) ensureSession(ctx context.Context, name string) (*sessionHolde
 		m.mu.Unlock()
 		return nil, fmt.Errorf("unknown MCP server %q", name)
 	}
-	if strings.TrimSpace(cfg.Command) == "" {
+	if _, err := cfg.connectionKind(); err != nil {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("mcp server %q has no command configured", name)
+		return nil, err
 	}
 
 	holder := m.sessions[name]
@@ -263,17 +303,54 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder
 		Version: "0.1.0",
 	}, nil)
 
-	cmd := exec.Command(cfg.Command, cfg.Args...)
-	transport := &sdk.CommandTransport{Command: cmd}
-	session, err := client.Connect(ctx, transport, nil)
+	kind, err := cfg.connectionKind()
 	if err != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
 		return nil, err
 	}
-	return newSessionHolder(session, nil), nil
+
+	switch kind {
+	case transportCommand:
+		cmd := exec.Command(cfg.Command, cfg.Args...)
+		if env := envList(cfg.Env); len(env) > 0 {
+			cmd.Env = append(os.Environ(), env...)
+		}
+		transport := &sdk.CommandTransport{Command: cmd}
+		session, err := client.Connect(ctx, transport, nil)
+		if err != nil {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+			}
+			return nil, err
+		}
+		return newSessionHolder(session, nil), nil
+
+	case transportSSE:
+		httpClient := httpClientWithHeaders(cfg.Env)
+		transport := &sdk.SSEClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
+		}
+		session, err := client.Connect(ctx, transport, nil)
+		if err != nil {
+			return nil, err
+		}
+		return newSessionHolder(session, nil), nil
+
+	case transportHTTP:
+		httpClient := httpClientWithHeaders(cfg.Env)
+		transport := &sdk.StreamableClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
+		}
+		session, err := client.Connect(ctx, transport, nil)
+		if err != nil {
+			return nil, err
+		}
+		return newSessionHolder(session, nil), nil
+	}
+
+	return nil, fmt.Errorf("unsupported transport for server %q", cfg.Name)
 }
 
 type sessionHolder struct {
@@ -390,36 +467,28 @@ func defaultSchema() map[string]any {
 }
 
 func loadServerConfigs(home string) (map[string]serverConfig, error) {
-	dir := filepath.Join(home, ".humble-ai-cli", "mcp_servers")
-	entries, err := os.ReadDir(dir)
+	path := filepath.Join(home, ".humble-ai-cli", "mcp-servers.json")
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]serverConfig{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("list MCP servers: %w", err)
+		return nil, fmt.Errorf("read MCP server configs: %w", err)
 	}
 
-	servers := make(map[string]serverConfig)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		raw, err := os.ReadFile(path)
+	var file mcpConfigFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("parse MCP server config: %w", err)
+	}
+	if len(file.Servers) == 0 {
+		return map[string]serverConfig{}, nil
+	}
+
+	servers := make(map[string]serverConfig, len(file.Servers))
+	for key, raw := range file.Servers {
+		cfg, err := buildServerConfig(key, raw)
 		if err != nil {
-			return nil, fmt.Errorf("read MCP server config %q: %w", entry.Name(), err)
-		}
-
-		var cfg serverConfig
-		if err := json.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf("parse MCP server config %q: %w", entry.Name(), err)
-		}
-
-		if strings.TrimSpace(cfg.Name) == "" {
-			cfg.Name = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+			return nil, err
 		}
 		if _, exists := servers[cfg.Name]; exists {
 			return nil, fmt.Errorf("duplicate MCP server name %q", cfg.Name)
@@ -427,6 +496,146 @@ func loadServerConfigs(home string) (map[string]serverConfig, error) {
 		servers[cfg.Name] = cfg
 	}
 	return servers, nil
+}
+
+type mcpConfigFile struct {
+	Servers map[string]rawServerConfig `json:"mcpServers"`
+}
+
+type rawServerConfig struct {
+	Name        string            `json:"name,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Enabled     *bool             `json:"enabled,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Transport   string            `json:"transport,omitempty"`
+}
+
+func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
+	name := strings.TrimSpace(raw.Name)
+	if name == "" {
+		name = strings.TrimSpace(key)
+	}
+	if name == "" {
+		return serverConfig{}, fmt.Errorf("invalid MCP server entry %q: missing name", key)
+	}
+
+	cfg := serverConfig{
+		Name:        name,
+		Description: strings.TrimSpace(raw.Description),
+		Enabled:     true,
+		Command:     strings.TrimSpace(raw.Command),
+		Args:        append([]string(nil), raw.Args...),
+		Env:         cloneStringMap(raw.Env),
+		URL:         strings.TrimSpace(raw.URL),
+		Transport:   strings.ToLower(strings.TrimSpace(raw.Transport)),
+	}
+	if raw.Enabled != nil {
+		cfg.Enabled = *raw.Enabled
+	}
+	if cfg.Transport == transportCommand {
+		cfg.Transport = ""
+	}
+
+	if cfg.Command != "" && cfg.URL != "" {
+		return serverConfig{}, fmt.Errorf("server %q must define either a command or url, not both", name)
+	}
+	if cfg.Command == "" && cfg.URL == "" {
+		return serverConfig{}, fmt.Errorf("server %q must define either a command or url", name)
+	}
+	if cfg.URL != "" {
+		if cfg.Transport == "" {
+			cfg.Transport = transportSSE
+		}
+		switch cfg.Transport {
+		case transportSSE, transportHTTP:
+		default:
+			return serverConfig{}, fmt.Errorf("server %q has unsupported transport %q", name, cfg.Transport)
+		}
+	}
+
+	return cfg, nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		dst[k] = strings.TrimSpace(value)
+	}
+	if len(dst) == 0 {
+		return nil
+	}
+	return dst
+}
+
+func envList(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(env))
+	for key, value := range env {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s=%s", k, value))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func httpClientWithHeaders(headers map[string]string) *http.Client {
+	if len(headers) == 0 {
+		return nil
+	}
+	httpHeaders := make(http.Header, len(headers))
+	for key, value := range headers {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		httpHeaders.Set(k, value)
+	}
+	if len(httpHeaders) == 0 {
+		return nil
+	}
+	base := http.DefaultTransport
+	return &http.Client{
+		Transport: &headerInjector{
+			base:    base,
+			headers: httpHeaders,
+		},
+	}
+}
+
+type headerInjector struct {
+	base    http.RoundTripper
+	headers http.Header
+}
+
+func (h *headerInjector) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := h.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	for key, values := range h.headers {
+		if len(values) == 0 {
+			continue
+		}
+		req.Header.Set(key, values[len(values)-1])
+	}
+	return base.RoundTrip(req)
 }
 
 func convertResult(res *sdk.CallToolResult) (llm.ToolResult, error) {

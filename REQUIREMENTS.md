@@ -21,6 +21,9 @@
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
 - 활성 모델이 존재하지 않으면 사용자 입력 시 /set-model 커맨드를 안내한다.
 - log level 설정: debug, info(default), warn, error
+- `toolCallMode` 설정을 추가하고 manual(default) 또는 auto 값을 허용한다.
+    - manual 일 경우 MCP tool call 시 사용자에게 실행 여부를 재확인한다.
+    - auto 일 경우 tool call 요약을 출력하되 추가 확인 없이 즉시 호출한다.
 - system prompt 설정은 $HOME/.humble-ai-cli/system_prompt.txt 파일을 사용 함
   - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함
   - 최초 실행 시 system_prompt.txt 파일의 존재 여부를 확인하고 미 존재시 Default system_prompt.txt 를 생성 할 것.
@@ -38,6 +41,7 @@
     - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
     - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 function 이름과 description 을 출력한다.
+    - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
 
 ## Logging
@@ -48,7 +52,13 @@
     - MCP 서버 초기화 과정과 tool 호출 결과
 
 ## MCP Server 호출 기능
-- MCP Server 설정은 $HOME/.humble-ai-cli/mcp_servers 디렉토리에 각 mcp server 에 대한 json 설정 파일로 관리됨
+- MCP Server 설정은 $HOME/.humble-ai-cli/mcp-servers.json 단일 파일에서 관리하며, JSON 구조는 다음을 따른다.
+  - 루트에 `mcpServers` 오브젝트를 두고 key 를 MCP 서버 이름으로 사용한다.
+  - 각 서버 항목은 `description`, `enabled`(기본값 true), `command`, `args`, `env`, `url`, `transport` 필드를 지원한다.
+  - command 기반 서버는 `command` 와 선택적 `args`, `env`(프로세스 환경 변수)를 지정한다.
+  - 원격 서버는 `url` 을 지정하고, `transport` 로 `sse`(기본값) 또는 `http`(streamable HTTP) 를 선택할 수 있다.
+  - 원격 서버의 `env` 항목은 HTTP 헤더로 전송되어 토큰 등 인증 정보를 전달한다.
+  - `command` 와 `url` 중 하나는 반드시 설정되어야 하며, 동시에 둘 다 설정하면 안 된다.
 - MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음
 - LLM 이 필요시 MCP Server 호출을 요청 할 수 있고 humble-ai-cli 를 MCP Server 를 호출하고 결과를 LLM 에게 전달 함
 - 정확한 답변을 위해 LLM 은 MCP Server 를 여러번 호출 할 수 있음
