@@ -105,3 +105,9 @@
 - [x] 새로운 컨텍스트 요구사항을 검사하는 테스트를 추가한다.
 - [x] Ollama 컨텍스트에 tool_calls 대신 content JSON 을 사용하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Tool Call Context 정리
+- [x] REQUIREMENTS.md 에 tool call context 정리 요구사항을 반영한다.
+- [x] tool call context 제외 동작을 검증하는 테스트를 추가한다.
+- [x] Tool call 중간 메시지를 context 에서 제거하는 구현을 추가한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

@@ -652,6 +652,7 @@ loop:
 			if chunk.ToolCall == nil {
 				continue
 			}
+			assistant.Reset()
 			a.logDebug("LLM requested MCP tool: server=%s method=%s", chunk.ToolCall.Server, chunk.ToolCall.Method)
 			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall); err != nil {
 				if errors.Is(err, errToolDeclined) {

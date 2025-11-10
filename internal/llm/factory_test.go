@@ -76,10 +76,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "## weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "### Available Tools") {
-		t.Fatalf("expected available tools section in system prompt, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, "- get_weather: Get the weather in a given city") {
+	if !strings.Contains(systemMsg.Content, "- **get_weather**: Get the weather in a given city") {
 		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "Input Schema:") {

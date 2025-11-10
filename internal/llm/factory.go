@@ -910,7 +910,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	for _, server := range serverNames {
 		builder.WriteString("\n## ")
 		builder.WriteString(server)
-		builder.WriteString("\n\n### Available Tools\n")
+		builder.WriteString("\nThese are tool name, description and input schema.\n")
 
 		tools := groups[server]
 		sort.Slice(tools, func(i, j int) bool {
@@ -918,9 +918,9 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		})
 
 		for _, tool := range tools {
-			builder.WriteString("- ")
+			builder.WriteString("- **")
 			builder.WriteString(tool.name)
-			builder.WriteString(": ")
+			builder.WriteString("**: ")
 			builder.WriteString(tool.description)
 			builder.WriteByte('\n')
 			builder.WriteString("    Input Schema:\n")

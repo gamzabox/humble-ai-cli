@@ -445,3 +445,23 @@ FUNCTIONS:
 ```
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# assistant 의 Tool Call json content와 Tool Call 결과 content 를 context 에서 제외 하도록 수정
+- tool call 진행 및 최종 답변 생성시 까지는 지금과 같이 tool call json 및 tool call 결과를 context 로 전달
+- 최종 답변을 받아 출력 이후에는 최종 답변만 context 에 유지
+- Tool Calling 과정에서의 Context 구성
+  1. system: system prompt
+  2. previous context
+  3. user: search somthing with mcp
+  4. assistant: tool call json
+  5. tool: tool call result
+  6. assistant: final result
+- Final result 생성 이후의 context 구성
+  1. system: system prompt
+  2. previous context
+  3. user: search somthing with mcp
+  4. assistant: final result
+  5. user: new message
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
