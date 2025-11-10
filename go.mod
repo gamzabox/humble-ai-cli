@@ -1,4 +1,4 @@
-module gamzabox.com/humble-ai-cli
+module github.com/gamzabox/humble-ai-cli
 
 go 1.25.2
 
