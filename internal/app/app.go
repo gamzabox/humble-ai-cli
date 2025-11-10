@@ -318,40 +318,6 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 	builder.WriteString("- **Never generate a natural language response together with a tool call.**\n")
 	builder.WriteString("- Always wait for each tool call result before deciding the next action.\n")
 	builder.WriteString("- The final response must include the integrated outcome of all tool call results.\n")
-
-	if len(servers) > 0 {
-		builder.WriteString("\nAvailable MCP servers and functions:\n")
-		for _, srv := range servers {
-			builder.WriteString("  - ")
-			builder.WriteString(srv.Name)
-			desc := strings.TrimSpace(srv.Description)
-			if desc != "" {
-				builder.WriteString(": ")
-				builder.WriteString(desc)
-			}
-			builder.WriteString("\n")
-
-			tools := append([]MCPFunction(nil), functions[srv.Name]...)
-			sort.Slice(tools, func(i, j int) bool {
-				return tools[i].Name < tools[j].Name
-			})
-			if len(tools) == 0 {
-				builder.WriteString("    (no functions reported)\n")
-				continue
-			}
-			for _, fn := range tools {
-				builder.WriteString("    * ")
-				builder.WriteString(fn.Name)
-				fnDesc := strings.TrimSpace(fn.Description)
-				if fnDesc != "" {
-					builder.WriteString(": ")
-					builder.WriteString(fnDesc)
-				}
-				builder.WriteString("\n")
-			}
-		}
-	}
-
 	builder.WriteString("\nAfter the tool call completes, integrate the returned data into your answer.\n")
 	return builder.String()
 }

@@ -894,7 +894,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	sort.Strings(serverNames)
 
 	var builder strings.Builder
-	builder.WriteString("CALL_FUNCTION_RULES:\n- Never use natural language when you call function.\n\n\nFUNCTIONS:\n\n# Connected MCP Servers\n")
+	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
 
 	for _, server := range serverNames {
 		builder.WriteString("\n## ")
