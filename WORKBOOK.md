@@ -465,3 +465,10 @@ FUNCTIONS:
   5. user: new message
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# MCP 실행결과에 대한 role 을 현재 tool 에서 MCP Server name 으로 변경
+- 기존 role: "tool" 을 다음 예제와 같이 변경
+- playwright MCP 일 경우 role: "playwright"
+- context7 MCP 일 경우 role: "context7"
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

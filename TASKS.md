@@ -117,3 +117,8 @@
 - [x] LLM 요청 본문에 temperature 0.1 설정을 검증하는 테스트를 추가한다.
 - [x] OpenAI/Ollama provider 가 temperature 0.1 을 항상 전달하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP Tool Result Role Update
+- [x] MCP tool result role 요구사항을 테스트에 반영한다.
+- [x] LLM provider 가 MCP server name 으로 role 을 설정하도록 구현한다.
+- [x] `go test ./...` 를 실행해 변경 사항을 검증한다.

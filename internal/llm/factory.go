@@ -276,8 +276,13 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 		content = "{}"
 	}
 
+	role := strings.TrimSpace(definition.Server)
+	if role == "" {
+		role = "tool"
+	}
+
 	toolMessage := openAIMessage{
-		Role:       "tool",
+		Role:       role,
 		Content:    content,
 		ToolCallID: call.Call.ID,
 		Name:       definition.Name,
@@ -826,8 +831,13 @@ func (p *ollamaProvider) awaitToolResult(
 		content = "{}"
 	}
 
+	role := strings.TrimSpace(definition.Server)
+	if role == "" {
+		role = "tool"
+	}
+
 	return ollamaMessage{
-		Role:     "tool",
+		Role:     role,
 		Content:  content,
 		ToolName: call.Call.Function.Name,
 	}, nil

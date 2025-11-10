@@ -291,7 +291,7 @@ finished:
 		if len(msg.ToolCalls) > 0 {
 			t.Fatalf("tool_calls field should be empty in context payload: %+v", msg.ToolCalls)
 		}
-		if msg.Role == "tool" {
+		if msg.Role == "weather" {
 			foundToolRole = true
 			if msg.ToolName != "get_weather" {
 				t.Fatalf("unexpected tool_name: %s", msg.ToolName)
@@ -323,7 +323,7 @@ finished:
 		t.Fatalf("unexpected city argument: %v", callPayload.Arguments["city"])
 	}
 	if !foundToolRole {
-		t.Fatalf("expected tool role message in second request")
+		t.Fatalf("expected weather role message in second request")
 	}
 }
 
@@ -472,13 +472,13 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	foundTool := false
 	for _, msg := range secondPayload.Messages {
-		if msg.Role == "tool" {
+		if msg.Role == "context7" {
 			foundTool = true
 			break
 		}
 	}
 	if !foundTool {
-		t.Fatalf("expected tool role message in second pass payload: %+v", secondPayload.Messages)
+		t.Fatalf("expected context7 role message in second pass payload: %+v", secondPayload.Messages)
 	}
 }
 
@@ -841,7 +841,7 @@ finished:
 	for _, entry := range entries {
 		if strings.Contains(entry, "LLM request") {
 			requestLogs++
-			if strings.Contains(entry, `"role":"tool"`) {
+			if strings.Contains(entry, `"role":"calculator"`) {
 				hasToolPayload = true
 			}
 		}
@@ -857,7 +857,7 @@ finished:
 		t.Fatalf("expected at least two LLM response logs, got %d (entries=%v)", responseLogs, entries)
 	}
 	if !hasToolPayload {
-		t.Fatalf("expected tool role payload in logs, entries=%v", entries)
+		t.Fatalf("expected calculator role payload in logs, entries=%v", entries)
 	}
 }
 
