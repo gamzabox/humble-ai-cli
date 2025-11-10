@@ -736,6 +736,18 @@ func (p *ollamaProvider) streamOnce(
 		}
 	}
 
+	if len(toolCalls) > 0 {
+		callContent := formatOllamaToolCallContent(toolCalls)
+		if callContent != "" {
+			content := strings.TrimSpace(assistant.Content)
+			if content == "" {
+				assistant.Content = callContent
+			} else {
+				assistant.Content = strings.TrimSpace(content + "\n\n" + callContent)
+			}
+		}
+	}
+
 	logResponse := func(toolCallCount int) {
 		if logger == nil {
 			return
@@ -751,7 +763,6 @@ func (p *ollamaProvider) streamOnce(
 		return &ollamaPassResult{assistantMessage: assistant}, nil
 	}
 
-	assistant.ToolCalls = convertToOllamaOutgoingCalls(toolCalls)
 	requests := make([]toolCallRequest, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		requests = append(requests, toolCallRequest{Call: call})
@@ -945,16 +956,36 @@ func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]
 }
 
 func parseManualToolCall(content string) ([]openAIToolCall, string) {
-	blocks := findJSONBlocks(content)
-	for _, block := range blocks {
-		call, ok := parseToolCallJSON(content[block.start:block.end])
-		if !ok {
-			continue
+	cleaned := content
+	var calls []openAIToolCall
+
+	for {
+		blocks := findJSONBlocks(cleaned)
+		if len(blocks) == 0 {
+			break
 		}
-		cleaned := removeJSONBlock(content, block.start, block.end)
-		return []openAIToolCall{call}, cleaned
+
+		parsed := false
+		for _, block := range blocks {
+			call, ok := parseToolCallJSON(cleaned[block.start:block.end])
+			if !ok {
+				continue
+			}
+			calls = append(calls, call)
+			cleaned = removeJSONBlock(cleaned, block.start, block.end)
+			parsed = true
+			break
+		}
+
+		if !parsed {
+			break
+		}
 	}
-	return nil, content
+
+	if len(calls) == 0 {
+		return nil, content
+	}
+	return calls, cleaned
 }
 
 type jsonBlock struct {
@@ -1068,37 +1099,45 @@ func trimLeadingFence(s string) string {
 	return s
 }
 
-func convertToOllamaOutgoingCalls(calls []openAIToolCall) []ollamaOutgoingToolCall {
+func formatOllamaToolCallContent(calls []openAIToolCall) string {
 	if len(calls) == 0 {
-		return nil
+		return ""
 	}
-	out := make([]ollamaOutgoingToolCall, 0, len(calls))
+
+	payloads := make([]string, 0, len(calls))
 	for _, call := range calls {
-		var args map[string]any
-		raw := strings.TrimSpace(call.Function.Arguments)
-		if raw == "" {
-			args = map[string]any{}
-		} else {
-			if err := json.Unmarshal([]byte(raw), &args); err != nil {
-				args = map[string]any{
-					"__raw": raw,
-				}
+		data := map[string]any{
+			"name": strings.TrimSpace(call.Function.Name),
+		}
+
+		rawArgs := strings.TrimSpace(call.Function.Arguments)
+		switch rawArgs {
+		case "":
+			data["arguments"] = map[string]any{}
+		default:
+			var parsed any
+			if err := json.Unmarshal([]byte(rawArgs), &parsed); err != nil {
+				data["arguments"] = rawArgs
+			} else {
+				data["arguments"] = parsed
 			}
 		}
-		callType := call.Type
-		if callType == "" {
-			callType = "function"
+
+		if call.ID != "" {
+			data["id"] = call.ID
 		}
-		out = append(out, ollamaOutgoingToolCall{
-			ID:   call.ID,
-			Type: callType,
-			Function: ollamaOutgoingToolSignature{
-				Name:      call.Function.Name,
-				Arguments: args,
-			},
-		})
+		if call.Type != "" {
+			data["type"] = call.Type
+		}
+
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			continue
+		}
+		payloads = append(payloads, string(encoded))
 	}
-	return out
+
+	return strings.Join(payloads, "\n")
 }
 
 func extractReasoningSegments(raw json.RawMessage) []string {

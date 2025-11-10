@@ -414,3 +414,34 @@ FUNCTIONS:
     }
 ---
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Ollama Tool Call 에 대한 JSON 을 Context 에 삽입 시 "tool_calls" 가 아닌 "content" 에 Json 문자열로 설정 할것
+- 현재 상태
+```json
+{
+  "role": "assistant",
+  "content": "",
+  "tool_calls":[
+    {
+      "type": "function",
+      "function": {
+        "name": "resolve-library-id",
+        "arguments": {
+          "libraryName": "fastmcp"
+        }
+      }
+    }
+  ]
+}
+```
+
+- 다음으로 개선 
+```json
+{
+  "role": "assistant",
+  "content": "{￦"name￦": ￦"resolve-library-id￦",￦"arguments￦": {￦"libraryName￦": ￦"fastmcp￦"}}"
+}
+```
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

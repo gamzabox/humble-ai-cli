@@ -70,9 +70,6 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "Base prompt.") {
 		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "CALL_FUNCTION:") {
-		t.Fatalf("expected CALL_FUNCTION instructions in system prompt")
-	}
 	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
 		t.Fatalf("expected connected server heading in system prompt, got %q", systemMsg.Content)
 	}
@@ -236,9 +233,6 @@ finished:
 	if strings.Contains(string(firstBody), `"tools"`) {
 		t.Fatalf("first request should not send tools field: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
-		t.Fatalf("first request missing CALL_FUNCTION instructions: %s", string(firstBody))
-	}
 	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
 		t.Fatalf("first request missing FUNCTION_CALL instructions: %s", string(firstBody))
 	}
@@ -258,20 +252,13 @@ finished:
 	}
 
 	var (
-		foundToolCall bool
-		foundToolRole bool
+		toolCallContent string
+		foundToolRole   bool
 	)
 
 	for _, msg := range secondPayload.Messages {
 		if len(msg.ToolCalls) > 0 {
-			foundToolCall = true
-			argCity, ok := msg.ToolCalls[0].Function.Arguments["city"]
-			if !ok {
-				t.Fatalf("expected city argument in tool call: %#v", msg.ToolCalls[0].Function.Arguments)
-			}
-			if argCity != "Tokyo" {
-				t.Fatalf("unexpected city value: %v", argCity)
-			}
+			t.Fatalf("tool_calls field should be empty in context payload: %+v", msg.ToolCalls)
 		}
 		if msg.Role == "tool" {
 			foundToolRole = true
@@ -279,10 +266,30 @@ finished:
 				t.Fatalf("unexpected tool_name: %s", msg.ToolName)
 			}
 		}
+		if msg.Role == "assistant" {
+			content := strings.TrimSpace(msg.Content)
+			if strings.Contains(content, `"name":"get_weather"`) {
+				toolCallContent = content
+			}
+		}
 	}
 
-	if !foundToolCall {
-		t.Fatalf("expected assistant message with tool_calls in second request")
+	if toolCallContent == "" {
+		t.Fatalf("expected assistant content with tool call JSON in second request")
+	}
+
+	var callPayload struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if err := json.Unmarshal([]byte(toolCallContent), &callPayload); err != nil {
+		t.Fatalf("unmarshal assistant tool call content: %v", err)
+	}
+	if callPayload.Name != "get_weather" {
+		t.Fatalf("unexpected call name: %s", callPayload.Name)
+	}
+	if callPayload.Arguments["city"] != "Tokyo" {
+		t.Fatalf("unexpected city argument: %v", callPayload.Arguments["city"])
 	}
 	if !foundToolRole {
 		t.Fatalf("expected tool role message in second request")
@@ -420,9 +427,6 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 
 	if len(firstBody) == 0 {
 		t.Fatalf("expected first request body")
-	}
-	if !strings.Contains(string(firstBody), "CALL_FUNCTION:") {
-		t.Fatalf("system prompt missing in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
 		t.Fatalf("FUNCTION_CALL block missing in first request: %s", string(firstBody))

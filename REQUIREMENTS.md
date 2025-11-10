@@ -4,10 +4,6 @@
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
 - Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 예제와 같이 System Prompt 에 직접 포함해 전달한다.
   ```
-  CALL_FUNCTION:
-  Never use natural language when you call function.
-
-
   FUNCTIONS:
 
   # Connected MCP Servers
@@ -76,7 +72,7 @@
   	}
   }
   ```
-- Ollama 모델이 위 `CALL_FUNCTION` 규칙에 따라 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
+- Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.
 - 현재 활성화된 model 이 없는 상태에서 질문을 입력하면 /set-model 커맨트를 통해 model 을 선택하도록 가이드 하고, config.json 에 설정된 model 이 없을경우 config.json 에 model 설정을 추가 하라고 가이드 한다.
 - 프로그램 실행시 새로운 세션을 메모리상에서만 생성하고 파일로 저장하지 않는다. 대화 세션의 파일 저장은 최초 LLM 으로 부터 답변을 받은 시점 부터 이다.

@@ -100,3 +100,8 @@
 - [x] FUNCTION_CALL 안내 블록 추가 요구사항을 REQUIREMENTS.md에 반영한다.
 - [x] FUNCTION_CALL 블록 삽입을 검증하는 테스트를 업데이트한다.
 - [x] FUNCTION_CALL 블록을 생성 로직에 추가하고 `go test ./...` 를 통과시킨다.
+
+# Ollama Tool Call Context JSON
+- [x] 새로운 컨텍스트 요구사항을 검사하는 테스트를 추가한다.
+- [x] Ollama 컨텍스트에 tool_calls 대신 content JSON 을 사용하도록 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

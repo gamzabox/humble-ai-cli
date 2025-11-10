@@ -852,9 +852,6 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "MCP server tooling") {
 		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
 	}
-	if !strings.Contains(content, "* add") {
-		t.Fatalf("expected default prompt to list MCP functions, got:\n%s", content)
-	}
 
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
