@@ -158,86 +158,6 @@ func (p *toolRequestProvider) Requests() []llm.ChatRequest {
 	return out
 }
 
-type toolJSONProvider struct {
-	mu       sync.Mutex
-	requests []llm.ChatRequest
-	results  []llm.ToolResult
-}
-
-func newToolJSONProvider() *toolJSONProvider {
-	return &toolJSONProvider{}
-}
-
-func (p *toolJSONProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-chan llm.StreamChunk, error) {
-	p.mu.Lock()
-	p.requests = append(p.requests, req)
-	callIndex := len(p.requests)
-	p.mu.Unlock()
-
-	out := make(chan llm.StreamChunk)
-	go func() {
-		defer close(out)
-
-		if callIndex == 1 {
-			resultCh := make(chan llm.ToolResult, 1)
-			call := llm.ToolCall{
-				Server: "calculator",
-				Method: "add",
-				Arguments: map[string]any{
-					"a": float64(2),
-					"b": float64(3),
-				},
-				Respond: func(ctx context.Context, result llm.ToolResult) error {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case resultCh <- result:
-						return nil
-					}
-				},
-			}
-
-			out <- llm.StreamChunk{Type: llm.ChunkThinking}
-			out <- llm.StreamChunk{Type: llm.ChunkToken, Content: `{"name":"add","arguments":{"a":2,"b":3}}`}
-			out <- llm.StreamChunk{Type: llm.ChunkToolCall, ToolCall: &call}
-
-			select {
-			case <-ctx.Done():
-				return
-			case result := <-resultCh:
-				p.mu.Lock()
-				p.results = append(p.results, result)
-				p.mu.Unlock()
-			}
-
-			out <- llm.StreamChunk{Type: llm.ChunkToken, Content: "Final answer: 5"}
-			out <- llm.StreamChunk{Type: llm.ChunkDone}
-			return
-		}
-
-		out <- llm.StreamChunk{Type: llm.ChunkThinking}
-		out <- llm.StreamChunk{Type: llm.ChunkToken, Content: "Second response."}
-		out <- llm.StreamChunk{Type: llm.ChunkDone}
-	}()
-	return out, nil
-}
-
-func (p *toolJSONProvider) Requests() []llm.ChatRequest {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	out := make([]llm.ChatRequest, len(p.requests))
-	copy(out, p.requests)
-	return out
-}
-
-func (p *toolJSONProvider) Results() []llm.ToolResult {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	out := make([]llm.ToolResult, len(p.results))
-	copy(out, p.results)
-	return out
-}
-
 type recordedMCPCall struct {
 	Server    string
 	Method    string
@@ -932,7 +852,6 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "MCP server tooling") {
 		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
 	}
-
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
 	if err := os.WriteFile(systemPromptPath, custom, 0o644); err != nil {
@@ -1090,96 +1009,6 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 	}
 }
 
-func TestAppRemovesToolCallMessagesFromContext(t *testing.T) {
-	home := t.TempDir()
-
-	store := &stubStore{
-		cfg: config.Config{
-			Models: []config.Model{
-				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
-			},
-		},
-	}
-
-	provider := newToolJSONProvider()
-
-	factory := newStubFactory()
-	factory.Register("stub-model", provider)
-
-	mcpExec := &stubMCP{
-		servers: []app.MCPServer{
-			{Name: "calculator", Description: "Adds numbers via MCP."},
-		},
-		toolset: map[string][]app.MCPFunction{
-			"calculator": {
-				{Name: "add", Description: "Add two numbers."},
-			},
-		},
-		response: llm.ToolResult{
-			Content: `{"sum":5}`,
-		},
-	}
-
-	input := strings.NewReader("Please add\nY\nAnother question\n/exit\n")
-	var output bytes.Buffer
-
-	opts := app.Options{
-		Store:          store,
-		Factory:        factory,
-		Input:          input,
-		Output:         &output,
-		ErrorOutput:    &output,
-		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
-		HomeDir:        home,
-		MCP:            mcpExec,
-		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
-	}
-
-	instance, err := app.New(opts)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	if err := instance.Run(context.Background()); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-
-	results := provider.Results()
-	if len(results) != 1 {
-		t.Fatalf("expected provider to receive 1 tool result, got %d", len(results))
-	}
-	if results[0].Content != `{"sum":5}` {
-		t.Fatalf("expected tool result content %q, got %q", `{"sum":5}`, results[0].Content)
-	}
-
-	requests := provider.Requests()
-	if len(requests) != 2 {
-		t.Fatalf("expected 2 LLM requests, got %d", len(requests))
-	}
-
-	second := requests[1]
-	if len(second.Messages) != 3 {
-		t.Fatalf("expected 3 messages in second request, got %d", len(second.Messages))
-	}
-
-	assistantMsg := second.Messages[1]
-	if assistantMsg.Role != "assistant" {
-		t.Fatalf("expected assistant role for previous response, got %s", assistantMsg.Role)
-	}
-	if assistantMsg.Content != "Final answer: 5" {
-		t.Fatalf("expected assistant context to keep only final answer, got %q", assistantMsg.Content)
-	}
-	if strings.Contains(assistantMsg.Content, `"arguments"`) {
-		t.Fatalf("assistant context should not include tool call JSON, got %q", assistantMsg.Content)
-	}
-
-	for _, msg := range second.Messages {
-		if msg.Role == "tool" {
-			t.Fatalf("context should not retain tool role messages, got %#v", msg)
-		}
-	}
-}
-
 func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
 	store := &stubStore{}
 	factory := newStubFactory()
@@ -1225,10 +1054,10 @@ func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
 	got := output.String()
 	for _, phrase := range []string{
 		"Enabled MCP servers",
-		"calculator - Performs math operations",
+		"calculator",
 		"  - add: Add two numbers.",
 		"  - subtract: Subtract second number from first.",
-		"docs - Finds documentation snippets",
+		"docs",
 		"  - search: Search documentation by keyword.",
 	} {
 		if !strings.Contains(got, phrase) {

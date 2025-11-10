@@ -795,11 +795,7 @@ func (a *App) printMCPServers(ctx context.Context) error {
 	a.mcpMu.RLock()
 	for _, name := range names {
 		srv := a.mcpServers[name]
-		desc := strings.TrimSpace(srv.Description)
-		if desc == "" {
-			desc = "No description provided."
-		}
-		fmt.Fprintf(a.output, "%s - %s\n", srv.Name, desc)
+		fmt.Fprintf(a.output, "%s\n", srv.Name)
 
 		tools := append([]MCPFunction(nil), a.mcpFunctions[srv.Name]...)
 		sort.Slice(tools, func(i, j int) bool {
