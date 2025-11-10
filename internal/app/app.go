@@ -315,7 +315,7 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 	builder.WriteString("RULES:\n")
 	builder.WriteString("- **Never generate natural language message USER NOT REQUESTED**\n")
 	builder.WriteString("- You may call multiple tools in sequence if needed.\n")
-	builder.WriteString("- Never generate a natural language response together with a JSON for a tool call.\n")
+	builder.WriteString("- **Never generate a natural language response together with a tool call.**\n")
 	builder.WriteString("- Always wait for each tool call result before deciding the next action.\n")
 	builder.WriteString("- The final response must include the integrated outcome of all tool call results.\n")
 
