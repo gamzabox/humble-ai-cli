@@ -852,7 +852,6 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "MCP server tooling") {
 		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
 	}
-
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
 	if err := os.WriteFile(systemPromptPath, custom, 0o644); err != nil {
@@ -1055,10 +1054,10 @@ func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
 	got := output.String()
 	for _, phrase := range []string{
 		"Enabled MCP servers",
-		"calculator - Performs math operations",
+		"calculator",
 		"  - add: Add two numbers.",
 		"  - subtract: Subtract second number from first.",
-		"docs - Finds documentation snippets",
+		"docs",
 		"  - search: Search documentation by keyword.",
 	} {
 		if !strings.Contains(got, phrase) {

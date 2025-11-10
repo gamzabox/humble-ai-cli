@@ -76,10 +76,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "## weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "### Available Tools") {
-		t.Fatalf("expected available tools section in system prompt, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, "- get_weather: Get the weather in a given city") {
+	if !strings.Contains(systemMsg.Content, "- **get_weather**: Get the weather in a given city") {
 		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "Input Schema:") {
@@ -93,6 +90,18 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	}
 	if !strings.Contains(systemMsg.Content, `"name": "resolve-library-id"`) {
 		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("unmarshal payload into map: %v", err)
+	}
+	options, ok := root["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options object in payload, got %T", root["options"])
+	}
+	if got := options["temperature"]; got != 0.1 {
+		t.Fatalf("expected temperature 0.1, got %v", got)
 	}
 }
 
@@ -239,6 +248,17 @@ finished:
 	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
 		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
 	}
+	var firstMap map[string]any
+	if err := json.Unmarshal(firstBody, &firstMap); err != nil {
+		t.Fatalf("unmarshal first request: %v", err)
+	}
+	options, ok := firstMap["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options object in first request, got %T", firstMap["options"])
+	}
+	if options["temperature"] != 0.1 {
+		t.Fatalf("expected first request temperature 0.1, got %v", options["temperature"])
+	}
 	if len(secondBody) == 0 {
 		t.Fatalf("second request body not captured")
 	}
@@ -246,6 +266,17 @@ finished:
 	var secondPayload ollamaRequestPayload
 	if err := json.Unmarshal(secondBody, &secondPayload); err != nil {
 		t.Fatalf("second payload unmarshal: %v", err)
+	}
+	var secondMap map[string]any
+	if err := json.Unmarshal(secondBody, &secondMap); err != nil {
+		t.Fatalf("second payload map unmarshal: %v", err)
+	}
+	secondOptions, ok := secondMap["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options object in second request, got %T", secondMap["options"])
+	}
+	if secondOptions["temperature"] != 0.1 {
+		t.Fatalf("expected second request temperature 0.1, got %v", secondOptions["temperature"])
 	}
 	if len(secondPayload.Messages) == 0 {
 		t.Fatalf("second payload missing messages")
@@ -535,6 +566,13 @@ func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 		r.Body.Close()
 		if !strings.Contains(string(body), `"stream":true`) {
 			t.Fatalf("expected streaming request body, got: %s", string(body))
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+		if payload["temperature"] != 0.1 {
+			t.Fatalf("expected temperature 0.1, got %v", payload["temperature"])
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")

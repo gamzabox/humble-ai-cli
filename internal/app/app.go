@@ -313,7 +313,8 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 	builder.WriteString("   - Integrate the collected results\n")
 	builder.WriteString("   - Provide the final, well-structured response to the user\n\n")
 	builder.WriteString("RULES:\n")
-	builder.WriteString("- **Never generate natural language message USER NOT REQUESTED**\n")
+	builder.WriteString("- **Generate natural language message ONLY USER REQUESTED.**\n")
+	builder.WriteString("- **Natural language messages should always be generated concisely and clearly.**\n")
 	builder.WriteString("- You may call multiple tools in sequence if needed.\n")
 	builder.WriteString("- **Never generate a natural language response together with a tool call.**\n")
 	builder.WriteString("- Always wait for each tool call result before deciding the next action.\n")
@@ -652,6 +653,7 @@ loop:
 			if chunk.ToolCall == nil {
 				continue
 			}
+			assistant.Reset()
 			a.logDebug("LLM requested MCP tool: server=%s method=%s", chunk.ToolCall.Server, chunk.ToolCall.Method)
 			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall); err != nil {
 				if errors.Is(err, errToolDeclined) {
@@ -793,11 +795,7 @@ func (a *App) printMCPServers(ctx context.Context) error {
 	a.mcpMu.RLock()
 	for _, name := range names {
 		srv := a.mcpServers[name]
-		desc := strings.TrimSpace(srv.Description)
-		if desc == "" {
-			desc = "No description provided."
-		}
-		fmt.Fprintf(a.output, "%s - %s\n", srv.Name, desc)
+		fmt.Fprintf(a.output, "%s\n", srv.Name)
 
 		tools := append([]MCPFunction(nil), a.mcpFunctions[srv.Name]...)
 		sort.Slice(tools, func(i, j int) bool {
