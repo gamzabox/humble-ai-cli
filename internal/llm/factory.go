@@ -26,6 +26,8 @@ type Factory struct {
 	client HTTPClient
 }
 
+const defaultTemperature = 0.1
+
 // NewFactory builds a Factory with optional custom HTTP client.
 func NewFactory(client HTTPClient) *Factory {
 	if client == nil {
@@ -120,10 +122,11 @@ type openAIPassResult struct {
 
 func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages []openAIMessage, tools []openAITool, stream chan<- StreamChunk, thinkingSent *bool) (*openAIPassResult, error) {
 	payload, err := json.Marshal(openAIRequestPayload{
-		Model:    model,
-		Stream:   true,
-		Messages: messages,
-		Tools:    tools,
+		Model:       model,
+		Stream:      true,
+		Messages:    messages,
+		Tools:       tools,
+		Temperature: defaultTemperature,
 	})
 	if err != nil {
 		return nil, err
@@ -313,10 +316,11 @@ type openAIToolSignature struct {
 }
 
 type openAIRequestPayload struct {
-	Model    string          `json:"model"`
-	Stream   bool            `json:"stream"`
-	Messages []openAIMessage `json:"messages"`
-	Tools    []openAITool    `json:"tools,omitempty"`
+	Model       string          `json:"model"`
+	Stream      bool            `json:"stream"`
+	Messages    []openAIMessage `json:"messages"`
+	Tools       []openAITool    `json:"tools,omitempty"`
+	Temperature float64         `json:"temperature"`
 }
 
 type openAIStreamChunk struct {
@@ -495,6 +499,7 @@ type ollamaRequestPayload struct {
 	Stream   bool            `json:"stream"`
 	Messages []ollamaMessage `json:"messages"`
 	Tools    []openAITool    `json:"tools,omitempty"`
+	Options  map[string]any  `json:"options,omitempty"`
 }
 
 type ollamaToolFunction struct {
@@ -951,6 +956,9 @@ func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]
 		Model:    model,
 		Stream:   stream,
 		Messages: messages,
+		Options: map[string]any{
+			"temperature": defaultTemperature,
+		},
 	}
 	return json.Marshal(payload)
 }

@@ -111,3 +111,9 @@
 - [x] tool call context 제외 동작을 검증하는 테스트를 추가한다.
 - [x] Tool call 중간 메시지를 context 에서 제거하는 구현을 추가한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Temperature 설정 고정
+- [x] REQUIREMENTS.md 에 temperature 고정 요구사항을 반영한다.
+- [x] LLM 요청 본문에 temperature 0.1 설정을 검증하는 테스트를 추가한다.
+- [x] OpenAI/Ollama provider 가 temperature 0.1 을 항상 전달하도록 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
