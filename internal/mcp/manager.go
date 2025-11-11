@@ -14,7 +14,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"gamzabox.com/humble-ai-cli/internal/llm"
+	"github.com/gamzabox/humble-ai-cli/internal/llm"
 )
 
 // Server describes an enabled MCP server.

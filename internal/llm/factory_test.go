@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"gamzabox.com/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/config"
 )
 
 func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
@@ -76,7 +76,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "## weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "- **get_weather**: Get the weather in a given city") {
+	if !strings.Contains(systemMsg.Content, "- name: **get_weather**") {
 		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "Input Schema:") {

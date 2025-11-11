@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"gamzabox.com/humble-ai-cli/internal/app"
-	"gamzabox.com/humble-ai-cli/internal/config"
-	"gamzabox.com/humble-ai-cli/internal/llm"
+	"github.com/gamzabox/humble-ai-cli/internal/app"
+	"github.com/gamzabox/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/llm"
 )
 
 func main() {

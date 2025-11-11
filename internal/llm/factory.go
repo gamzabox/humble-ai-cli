@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"gamzabox.com/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/config"
 )
 
 // HTTPClient abstracts http.Client for testability.
@@ -933,11 +933,12 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		})
 
 		for _, tool := range tools {
-			builder.WriteString("- **")
+			builder.WriteString("\n- name: **")
 			builder.WriteString(tool.name)
-			builder.WriteString("**: ")
+			builder.WriteString("**\n")
+			builder.WriteString("- description: ")
 			builder.WriteString(tool.description)
-			builder.WriteByte('\n')
+			builder.WriteString("\n\n")
 			builder.WriteString("    Input Schema:\n")
 
 			schemaJSON, err := json.MarshalIndent(tool.parameters, "", "  ")

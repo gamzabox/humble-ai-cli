@@ -16,10 +16,10 @@ import (
 	"time"
 	"unicode"
 
-	"gamzabox.com/humble-ai-cli/internal/config"
-	"gamzabox.com/humble-ai-cli/internal/llm"
-	"gamzabox.com/humble-ai-cli/internal/logging"
-	mcpkg "gamzabox.com/humble-ai-cli/internal/mcp"
+	"github.com/gamzabox/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/llm"
+	"github.com/gamzabox/humble-ai-cli/internal/logging"
+	mcpkg "github.com/gamzabox/humble-ai-cli/internal/mcp"
 )
 
 // Clock abstracts time access for testability.

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gamzabox.com/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/config"
 )
 
 func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
