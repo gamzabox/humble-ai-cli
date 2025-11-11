@@ -914,7 +914,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
 
 	for _, server := range serverNames {
-		builder.WriteString("\n## ")
+		builder.WriteString("\n## MCP Server: ")
 		builder.WriteString(server)
 		builder.WriteString("\nThese are tool name, description and input schema.\n")
 
