@@ -308,6 +308,7 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"   * Summarize the failure briefly to the user\n" +
 		"   * Ask how they would like to proceed (retry, alternative, provide more info)\n\n" +
 		"3. **When necessary, call multiple tools and combine their results into a final answer.**\n\n" +
+		"   * Avoid unnecessary tool calls; only call the tools required for the user's request.\n\n" +
 		"4. **When sending a tool call message, NEVER include natural language.**\n" +
 		"   Only send valid tool-call JSON — no explanation, no text around it.\n\n" +
 		"5. **If additional information is needed to perform a tool call, ask the user questions first.**\n" +
@@ -318,6 +319,7 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"   * reasoning summary\n" +
 		"   * assumptions or limitations\n" +
 		"   * suggested next steps if helpful\n\n" +
+		"8. **Generate the final answer concisely and clearly.**\n\n" +
 		"---\n\n" +
 		"## **2) Tool Call Protocol**\n\n" +
 		"* A tool call message must contain **only the tool invocation** (JSON format).\n" +
