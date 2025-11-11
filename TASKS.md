@@ -122,3 +122,15 @@
 - [x] MCP tool result role 요구사항을 테스트에 반영한다.
 - [x] LLM provider 가 MCP server name 으로 role 을 설정하도록 구현한다.
 - [x] `go test ./...` 를 실행해 변경 사항을 검증한다.
+
+# Tool Result Role 재조정
+- [x] REQUIREMENTS.md/WORKBOOK.md 에 role \"tool\" 고정 요구사항을 반영한다.
+- [x] role \"tool\" 고정을 검증하도록 테스트를 업데이트한다.
+- [x] MCP tool 결과 메시지가 role \"tool\" 을 사용하도록 구현을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Function Call Schema server 필드 추가
+- [x] REQUIREMENTS.md 와 컨텍스트 문서를 FUNCTION_CALL server 필드 요구사항으로 업데이트한다.
+- [x] FUNCTION_CALL server 필드를 검증하는 테스트를 먼저 수정한다.
+- [x] FUNCTION_CALL server 필드를 포함하도록 구현을 갱신한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

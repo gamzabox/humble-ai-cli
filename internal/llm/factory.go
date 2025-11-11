@@ -276,13 +276,8 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 		content = "{}"
 	}
 
-	role := strings.TrimSpace(definition.Server)
-	if role == "" {
-		role = "tool"
-	}
-
 	toolMessage := openAIMessage{
-		Role:       role,
+		Role:       "tool",
 		Content:    content,
 		ToolCallID: call.Call.ID,
 		Name:       definition.Name,
@@ -598,7 +593,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 
 		thinkingSent := false
 		for {
-			result, err := p.streamOnce(ctx, req.Model, true, messages, stream, &thinkingSent)
+			result, err := p.streamOnce(ctx, req.Model, true, messages, stream, &thinkingSent, definitions)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
@@ -648,6 +643,7 @@ func (p *ollamaProvider) streamOnce(
 	messages []ollamaMessage,
 	stream chan<- StreamChunk,
 	thinkingSent *bool,
+	definitions map[string]ToolDefinition,
 ) (*ollamaPassResult, error) {
 	payload, err := buildOllamaPayload(model, messages, streaming)
 	if err != nil {
@@ -747,7 +743,7 @@ func (p *ollamaProvider) streamOnce(
 	}
 
 	if len(toolCalls) > 0 {
-		callContent := formatOllamaToolCallContent(toolCalls)
+		callContent := formatOllamaToolCallContent(toolCalls, definitions)
 		if callContent != "" {
 			content := strings.TrimSpace(assistant.Content)
 			if content == "" {
@@ -831,13 +827,8 @@ func (p *ollamaProvider) awaitToolResult(
 		content = "{}"
 	}
 
-	role := strings.TrimSpace(definition.Server)
-	if role == "" {
-		role = "tool"
-	}
-
 	return ollamaMessage{
-		Role:     role,
+		Role:     "tool",
 		Content:  content,
 		ToolName: call.Call.Function.Name,
 	}, nil
@@ -957,7 +948,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		}
 	}
 
-	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t}\n}\n- Example\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t}\n}")
+	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"server\": \"server name\",\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t}\n}\n- Example\n{\n\t\"server\": \"context7\",\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t}\n}")
 
 	return strings.TrimRight(builder.String(), "\n")
 }
@@ -1118,15 +1109,24 @@ func trimLeadingFence(s string) string {
 	return s
 }
 
-func formatOllamaToolCallContent(calls []openAIToolCall) string {
+func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]ToolDefinition) string {
 	if len(calls) == 0 {
 		return ""
 	}
 
 	payloads := make([]string, 0, len(calls))
 	for _, call := range calls {
+		name := strings.TrimSpace(call.Function.Name)
 		data := map[string]any{
-			"name": strings.TrimSpace(call.Function.Name),
+			"server": "",
+			"name":   name,
+		}
+
+		if def, ok := definitions[name]; ok {
+			server := strings.TrimSpace(def.Server)
+			if server != "" {
+				data["server"] = server
+			}
 		}
 
 		rawArgs := strings.TrimSpace(call.Function.Arguments)

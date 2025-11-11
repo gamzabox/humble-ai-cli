@@ -85,8 +85,14 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "FUNCTION_CALL:") {
 		t.Fatalf("expected FUNCTION_CALL block in system prompt, got %q", systemMsg.Content)
 	}
+	if !strings.Contains(systemMsg.Content, `"server": "server name"`) {
+		t.Fatalf("expected FUNCTION_CALL schema to include server placeholder, got %q", systemMsg.Content)
+	}
 	if !strings.Contains(systemMsg.Content, `"name": "function name"`) {
 		t.Fatalf("expected FUNCTION_CALL schema example in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"server": "context7"`) {
+		t.Fatalf("expected FUNCTION_CALL example to include server, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, `"name": "resolve-library-id"`) {
 		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
@@ -245,6 +251,12 @@ finished:
 	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
 		t.Fatalf("first request missing FUNCTION_CALL instructions: %s", string(firstBody))
 	}
+	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
+		t.Fatalf("first request missing server placeholder in FUNCTION_CALL schema: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
+		t.Fatalf("first request missing server example in FUNCTION_CALL block: %s", string(firstBody))
+	}
 	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
 		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
 	}
@@ -291,11 +303,9 @@ finished:
 		if len(msg.ToolCalls) > 0 {
 			t.Fatalf("tool_calls field should be empty in context payload: %+v", msg.ToolCalls)
 		}
-		if msg.Role == "weather" {
+		if msg.Role == "tool" && msg.ToolName == "get_weather" {
 			foundToolRole = true
-			if msg.ToolName != "get_weather" {
-				t.Fatalf("unexpected tool_name: %s", msg.ToolName)
-			}
+			continue
 		}
 		if msg.Role == "assistant" {
 			content := strings.TrimSpace(msg.Content)
@@ -310,11 +320,15 @@ finished:
 	}
 
 	var callPayload struct {
+		Server    string         `json:"server"`
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal([]byte(toolCallContent), &callPayload); err != nil {
 		t.Fatalf("unmarshal assistant tool call content: %v", err)
+	}
+	if callPayload.Server != "weather" {
+		t.Fatalf("unexpected call server: %s", callPayload.Server)
 	}
 	if callPayload.Name != "get_weather" {
 		t.Fatalf("unexpected call name: %s", callPayload.Name)
@@ -323,14 +337,14 @@ finished:
 		t.Fatalf("unexpected city argument: %v", callPayload.Arguments["city"])
 	}
 	if !foundToolRole {
-		t.Fatalf("expected weather role message in second request")
+		t.Fatalf("expected tool role message in second request")
 	}
 }
 
 func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	t.Parallel()
 
-	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
+	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"server\": \"context7\",\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
 
 	var (
 		requestCount int
@@ -462,6 +476,12 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
 		t.Fatalf("FUNCTION_CALL block missing in first request: %s", string(firstBody))
 	}
+	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
+		t.Fatalf("FUNCTION_CALL schema missing server placeholder in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
+		t.Fatalf("FUNCTION_CALL example missing server entry in first request: %s", string(firstBody))
+	}
 	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
 		t.Fatalf("connected server heading missing in first request: %s", string(firstBody))
 	}
@@ -472,13 +492,13 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	foundTool := false
 	for _, msg := range secondPayload.Messages {
-		if msg.Role == "context7" {
+		if msg.Role == "tool" && msg.ToolName == "resolve-library-id" {
 			foundTool = true
 			break
 		}
 	}
 	if !foundTool {
-		t.Fatalf("expected context7 role message in second pass payload: %+v", secondPayload.Messages)
+		t.Fatalf("expected tool role message in second pass payload: %+v", secondPayload.Messages)
 	}
 }
 
@@ -841,7 +861,7 @@ finished:
 	for _, entry := range entries {
 		if strings.Contains(entry, "LLM request") {
 			requestLogs++
-			if strings.Contains(entry, `"role":"calculator"`) {
+			if strings.Contains(entry, `"role":"tool"`) && strings.Contains(entry, `"name":"add"`) {
 				hasToolPayload = true
 			}
 		}
@@ -857,7 +877,7 @@ finished:
 		t.Fatalf("expected at least two LLM response logs, got %d (entries=%v)", responseLogs, entries)
 	}
 	if !hasToolPayload {
-		t.Fatalf("expected calculator role payload in logs, entries=%v", entries)
+		t.Fatalf("expected tool role payload in logs, entries=%v", entries)
 	}
 }
 
