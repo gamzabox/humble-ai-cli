@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -28,6 +29,14 @@ type Function struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
+}
+
+// ConfiguredServer represents an MCP server entry in mcp-servers.json.
+type ConfiguredServer struct {
+	Key         string
+	Name        string
+	Description string
+	Enabled     bool
 }
 
 type serverConfig struct {
@@ -81,9 +90,9 @@ type sessionDialer func(context.Context, serverConfig) (*sessionHolder, error)
 
 // Manager loads server configurations and executes MCP tool calls.
 type Manager struct {
-	home    string
-	mu      sync.Mutex
-	servers map[string]serverConfig
+	home     string
+	mu       sync.Mutex
+	servers  map[string]serverConfig
 	sessions map[string]*sessionHolder
 	connect  sessionDialer
 }
@@ -205,6 +214,33 @@ func (m *Manager) Close() error {
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
+	}
+	return nil
+}
+
+// Reload refreshes server configurations from disk.
+func (m *Manager) Reload() error {
+	servers, err := loadServerConfigs(m.home)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	toClose := make([]*sessionHolder, 0)
+	for name, holder := range m.sessions {
+		cfg, ok := servers[name]
+		if !ok || !cfg.Enabled {
+			if holder != nil {
+				toClose = append(toClose, holder)
+			}
+			delete(m.sessions, name)
+		}
+	}
+	m.servers = servers
+	m.mu.Unlock()
+
+	for _, holder := range toClose {
+		_ = holder.Close()
 	}
 	return nil
 }
@@ -466,19 +502,54 @@ func defaultSchema() map[string]any {
 	}
 }
 
-func loadServerConfigs(home string) (map[string]serverConfig, error) {
-	path := filepath.Join(home, ".humble-ai-cli", "mcp-servers.json")
+func configFilePath(home string) string {
+	return filepath.Join(home, ".humble-ai-cli", "mcp-servers.json")
+}
+
+func readConfigFile(home string) (mcpConfigFile, error) {
+	path := configFilePath(home)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return map[string]serverConfig{}, nil
+		return mcpConfigFile{Servers: map[string]rawServerConfig{}}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read MCP server configs: %w", err)
+		return mcpConfigFile{}, fmt.Errorf("read MCP server configs: %w", err)
 	}
 
 	var file mcpConfigFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("parse MCP server config: %w", err)
+		return mcpConfigFile{}, fmt.Errorf("parse MCP server config: %w", err)
+	}
+	if file.Servers == nil {
+		file.Servers = map[string]rawServerConfig{}
+	}
+	return file, nil
+}
+
+func writeConfigFile(home string, file mcpConfigFile) error {
+	path := configFilePath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create MCP config dir: %w", err)
+	}
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal MCP server config: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write MCP server config: %w", err)
+	}
+	return nil
+}
+
+func boolPtr(value bool) *bool {
+	v := value
+	return &v
+}
+
+func loadServerConfigs(home string) (map[string]serverConfig, error) {
+	file, err := readConfigFile(home)
+	if err != nil {
+		return nil, err
 	}
 	if len(file.Servers) == 0 {
 		return map[string]serverConfig{}, nil
@@ -496,6 +567,90 @@ func loadServerConfigs(home string) (map[string]serverConfig, error) {
 		servers[cfg.Name] = cfg
 	}
 	return servers, nil
+}
+
+// ListConfiguredServers returns all configured servers with their enabled state.
+func ListConfiguredServers(home string) ([]ConfiguredServer, error) {
+	file, err := readConfigFile(home)
+	if err != nil {
+		return nil, err
+	}
+	if len(file.Servers) == 0 {
+		return nil, nil
+	}
+
+	type resolved struct {
+		key  string
+		raw  rawServerConfig
+		name string
+	}
+
+	list := make([]resolved, 0, len(file.Servers))
+	for key, raw := range file.Servers {
+		name := strings.TrimSpace(raw.Name)
+		if name == "" {
+			name = strings.TrimSpace(key)
+		}
+		if name == "" {
+			continue
+		}
+		list = append(list, resolved{
+			key:  key,
+			raw:  raw,
+			name: name,
+		})
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].name == list[j].name {
+			return list[i].key < list[j].key
+		}
+		return list[i].name < list[j].name
+	})
+
+	configured := make([]ConfiguredServer, 0, len(list))
+	for _, entry := range list {
+		enabled := true
+		if entry.raw.Enabled != nil {
+			enabled = *entry.raw.Enabled
+		}
+		configured = append(configured, ConfiguredServer{
+			Key:         entry.key,
+			Name:        entry.name,
+			Description: strings.TrimSpace(entry.raw.Description),
+			Enabled:     enabled,
+		})
+	}
+	return configured, nil
+}
+
+// SetServerEnabled updates the enabled flag for the specified server key.
+func SetServerEnabled(home, key string, enabled bool) (ConfiguredServer, error) {
+	file, err := readConfigFile(home)
+	if err != nil {
+		return ConfiguredServer{}, err
+	}
+	raw, ok := file.Servers[key]
+	if !ok {
+		return ConfiguredServer{}, fmt.Errorf("unknown MCP server %q", key)
+	}
+	raw.Enabled = boolPtr(enabled)
+	file.Servers[key] = raw
+	if err := writeConfigFile(home, file); err != nil {
+		return ConfiguredServer{}, err
+	}
+
+	name := strings.TrimSpace(raw.Name)
+	if name == "" {
+		name = strings.TrimSpace(key)
+	}
+
+	return ConfiguredServer{
+		Key:         key,
+		Name:        name,
+		Description: strings.TrimSpace(raw.Description),
+		Enabled:     enabled,
+	}, nil
 }
 
 type mcpConfigFile struct {

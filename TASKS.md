@@ -151,3 +151,9 @@
 - [x] reason 필드가 포함되었는지 검증하는 테스트를 먼저 수정한다.
 - [x] FUNCTION_CALL reason 필드를 포함하도록 시스템 프롬프트 생성을 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP Server Toggle Command
+- [x] /toggle-mcp 커맨드 요구사항을 REQUIREMENTS.md에 반영한다.
+- [x] /toggle-mcp 동작을 검증하는 테스트를 추가한다.
+- [x] /toggle-mcp 커맨드를 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

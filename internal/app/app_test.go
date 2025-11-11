@@ -68,6 +68,25 @@ func (f *stubFactory) Create(model config.Model) (llm.ChatProvider, error) {
 	return p, nil
 }
 
+func writeMCPServersConfig(t *testing.T, home string, servers map[string]map[string]any) {
+	t.Helper()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config directory: %v", err)
+	}
+
+	payload := map[string]any{
+		"mcpServers": servers,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal MCP server config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "mcp-servers.json"), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("failed to write MCP server config: %v", err)
+	}
+}
+
 type recordingProvider struct {
 	mu       sync.Mutex
 	requests []llm.ChatRequest
@@ -247,6 +266,8 @@ func (s *stubMCP) Tools(ctx context.Context, server string) ([]app.MCPFunction, 
 }
 
 func (s *stubMCP) Close() error { return nil }
+
+func (s *stubMCP) Reload() error { return nil }
 
 func TestAppPromptsToSetModelWhenActiveModelMissing(t *testing.T) {
 	store := &stubStore{
@@ -1068,6 +1089,92 @@ func TestAppMCPCommandPrintsEnabledServers(t *testing.T) {
 		"  - subtract: Subtract second number from first.",
 		"docs",
 		"  - search: Search documentation by keyword.",
+	} {
+		if !strings.Contains(got, phrase) {
+			t.Fatalf("expected output to contain %q, got:\n%s", phrase, got)
+		}
+	}
+}
+
+func TestAppToggleMCPCommandUpdatesServerState(t *testing.T) {
+	home := t.TempDir()
+	writeMCPServersConfig(t, home, map[string]map[string]any{
+		"context7": {
+			"description": "Context search",
+			"enabled":     true,
+			"command":     "/usr/bin/env",
+			"args":        []any{"echo"},
+		},
+		"playwright": {
+			"description": "Browser automation",
+			"enabled":     false,
+			"command":     "/usr/bin/env",
+			"args":        []any{"playwright"},
+		},
+	})
+
+	store := &stubStore{}
+	factory := newStubFactory()
+	input := strings.NewReader("/toggle-mcp\n2\n/toggle-mcp\n0\n/exit\n")
+	var output bytes.Buffer
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "context7", Description: "Context search"},
+		},
+	}
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, ".humble-ai-cli", "mcp-servers.json"))
+	if err != nil {
+		t.Fatalf("failed to read MCP server config: %v", err)
+	}
+
+	var configFile struct {
+		Servers map[string]struct {
+			Enabled *bool `json:"enabled,omitempty"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &configFile); err != nil {
+		t.Fatalf("failed to parse MCP server config: %v", err)
+	}
+
+	entry, ok := configFile.Servers["playwright"]
+	if !ok {
+		t.Fatalf("expected playwright entry in MCP config")
+	}
+	if entry.Enabled == nil || !*entry.Enabled {
+		t.Fatalf("expected playwright server to be enabled after toggle")
+	}
+
+	got := output.String()
+	for _, phrase := range []string{
+		"MCP servers found in mcp-servers.json:",
+		"  1) context7: enabled",
+		"  2) playwright: disabled",
+		"Server \"playwright\" is now enabled.",
+		"  2) playwright: enabled",
+		"Toggle cancelled.",
 	} {
 		if !strings.Contains(got, phrase) {
 			t.Fatalf("expected output to contain %q, got:\n%s", phrase, got)

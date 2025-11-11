@@ -44,6 +44,9 @@ type MCPServer = mcpkg.Server
 // MCPFunction describes a tool exposed by an MCP server.
 type MCPFunction = mcpkg.Function
 
+// MCPConfiguredServer describes a stored MCP server entry.
+type MCPConfiguredServer = mcpkg.ConfiguredServer
+
 // MCPExecutor resolves server metadata and executes MCP tool calls.
 type MCPExecutor interface {
 	EnabledServers() []MCPServer
@@ -51,6 +54,7 @@ type MCPExecutor interface {
 	Call(ctx context.Context, server, method string, arguments map[string]any) (llm.ToolResult, error)
 	Tools(ctx context.Context, server string) ([]MCPFunction, error)
 	Close() error
+	Reload() error
 }
 
 // Options configures App creation.
@@ -448,6 +452,8 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 		return false, a.setToolMode(args)
 	case "/mcp":
 		return false, a.printMCPServers(ctx)
+	case "/toggle-mcp":
+		return false, a.toggleMCPServer(ctx)
 	case "/exit":
 		return true, nil
 	default:
@@ -463,6 +469,7 @@ func (a *App) printHelp() {
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
 	fmt.Fprintln(a.output, "  /set-tool-mode [auto|manual]  Choose whether MCP tools run automatically.")
 	fmt.Fprintln(a.output, "  /mcp        List enabled MCP servers and their functions.")
+	fmt.Fprintln(a.output, "  /toggle-mcp Toggle whether an MCP server is enabled.")
 	fmt.Fprintln(a.output, "  /exit       Exit the application.")
 }
 
@@ -799,6 +806,100 @@ func (a *App) createHistoryFile(model string, when time.Time) (string, error) {
 		return "", fmt.Errorf("write history: %w", err)
 	}
 	return path, nil
+}
+
+func (a *App) toggleMCPServer(ctx context.Context) error {
+	entries, err := mcpkg.ListConfiguredServers(a.homeDir)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(a.output, "No MCP servers configured in mcp-servers.json.")
+		return nil
+	}
+
+	fmt.Fprintln(a.output, "MCP servers found in mcp-servers.json:")
+	for idx, entry := range entries {
+		status := "disabled"
+		if entry.Enabled {
+			status = "enabled"
+		}
+		fmt.Fprintf(a.output, "  %d) %s: %s\n", idx+1, entry.Name, status)
+	}
+
+	choiceLine, err := a.readLine("Choose the MCP server to enable/disable (0 to cancel): ")
+	if err != nil {
+		return err
+	}
+
+	choiceLine = strings.TrimSpace(choiceLine)
+	if choiceLine == "" {
+		fmt.Fprintln(a.output, "Toggle cancelled.")
+		return nil
+	}
+
+	choice, err := strconv.Atoi(choiceLine)
+	if err != nil || choice < 0 || choice > len(entries) {
+		fmt.Fprintln(a.output, "Invalid selection.")
+		return nil
+	}
+	if choice == 0 {
+		fmt.Fprintln(a.output, "Toggle cancelled.")
+		return nil
+	}
+
+	selected := entries[choice-1]
+	updated, err := mcpkg.SetServerEnabled(a.homeDir, selected.Key, !selected.Enabled)
+	if err != nil {
+		return err
+	}
+
+	status := "disabled"
+	if updated.Enabled {
+		status = "enabled"
+	}
+	fmt.Fprintf(a.output, "Server %q is now %s.\n", updated.Name, status)
+
+	if a.mcp != nil {
+		if err := a.mcp.Reload(); err != nil {
+			fmt.Fprintf(a.errOutput, "Failed to reload MCP servers: %v\n", err)
+		}
+	}
+
+	refreshed, err := mcpkg.ListConfiguredServers(a.homeDir)
+	if err != nil {
+		fmt.Fprintf(a.errOutput, "Failed to refresh MCP server list: %v\n", err)
+		return nil
+	}
+	if err := a.applyConfiguredMCPServers(ctx, refreshed); err != nil {
+		fmt.Fprintf(a.errOutput, "Failed to update MCP server cache: %v\n", err)
+	}
+	return nil
+}
+
+func (a *App) applyConfiguredMCPServers(ctx context.Context, entries []MCPConfiguredServer) error {
+	updated := make(map[string]MCPServer, len(entries))
+	for _, entry := range entries {
+		if !entry.Enabled {
+			continue
+		}
+		updated[entry.Name] = MCPServer{
+			Name:        entry.Name,
+			Description: entry.Description,
+		}
+	}
+
+	a.mcpServers = updated
+
+	a.mcpMu.Lock()
+	for name := range a.mcpFunctions {
+		if _, ok := updated[name]; !ok {
+			delete(a.mcpFunctions, name)
+		}
+	}
+	a.mcpMu.Unlock()
+
+	return a.loadMCPFunctions(ctx)
 }
 
 func (a *App) printMCPServers(ctx context.Context) error {

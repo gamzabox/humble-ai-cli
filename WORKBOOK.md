@@ -605,3 +605,18 @@ Ask minimal questions required to move forward.
 ```
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# MCP Server enabled 설정을 true/false 로 toggle 할 수 있는 command 추가
+- command: /toggle-mcp
+- mcp-servers.json 에 설정된 mcp server 들의 번호와 server name, 현재 enabled 설정 값이 출력됨
+Choose the MCP server to enable/disable (0 to cancel):
+  1) context7: enable
+  2) playwright: disable
+- 여기서 번호를 입력하고 엔터를 누르면 mcp server 설정이 없데이트 됨
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+
+

@@ -13,6 +13,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/set-model` – select the active model from configured entries.
   - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
   - `/mcp` – display enabled MCP servers and the functions they expose.
+  - `/toggle-mcp` – enable or disable MCP servers defined in `mcp-servers.json`.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
 ## Prerequisites
@@ -92,6 +93,7 @@ Set `toolCallMode` to `auto` to automatically run approved MCP tool calls withou
 - `url` servers connect to remote MCP servers via SSE (`transport: "sse"`, default) or streamable HTTP (`transport: "http"`). For remote servers, `env` entries are sent as HTTP headers.
 - When the LLM requests a tool call, the CLI prints the server name and description. In `manual` mode it then asks `Call now? (Y/N)`; in `auto` mode it executes immediately after printing the summary. Toggle the behaviour with `/set-tool-mode`.
 - On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
+- Use `/toggle-mcp` inside the CLI to quickly enable or disable specific MCP servers without manually editing the JSON file.
 
 ### Prompting Example
 ```
