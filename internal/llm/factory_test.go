@@ -91,11 +91,17 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, `"name": "function name"`) {
 		t.Fatalf("expected FUNCTION_CALL schema example in system prompt, got %q", systemMsg.Content)
 	}
+	if !strings.Contains(systemMsg.Content, `"reason": "reason why calling this function"`) {
+		t.Fatalf("expected FUNCTION_CALL schema to describe reason placeholder, got %q", systemMsg.Content)
+	}
 	if !strings.Contains(systemMsg.Content, `"server": "context7"`) {
 		t.Fatalf("expected FUNCTION_CALL example to include server, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, `"name": "context7__resolve-library-id"`) {
 		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, `"reason": "why this tool call is needed"`) {
+		t.Fatalf("expected FUNCTION_CALL example to include reason, got %q", systemMsg.Content)
 	}
 
 	var root map[string]any
@@ -254,8 +260,14 @@ finished:
 	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
 		t.Fatalf("first request missing server placeholder in FUNCTION_CALL schema: %s", string(firstBody))
 	}
+	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this function\"`) {
+		t.Fatalf("first request missing reason placeholder in FUNCTION_CALL schema: %s", string(firstBody))
+	}
 	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
 		t.Fatalf("first request missing server example in FUNCTION_CALL block: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), `\"reason\": \"why this tool call is needed\"`) {
+		t.Fatalf("first request missing reason example in FUNCTION_CALL block: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
 		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
@@ -479,8 +491,14 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
 		t.Fatalf("FUNCTION_CALL schema missing server placeholder in first request: %s", string(firstBody))
 	}
+	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this function\"`) {
+		t.Fatalf("FUNCTION_CALL schema missing reason placeholder in first request: %s", string(firstBody))
+	}
 	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
 		t.Fatalf("FUNCTION_CALL example missing server entry in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), `\"reason\": \"why this tool call is needed\"`) {
+		t.Fatalf("FUNCTION_CALL example missing reason entry in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
 		t.Fatalf("connected server heading missing in first request: %s", string(firstBody))

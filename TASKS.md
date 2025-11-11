@@ -145,3 +145,9 @@
 - [x] MCP tool name 네임스페이스 포맷을 검증하는 테스트를 먼저 업데이트한다.
 - [x] MCP tool name 생성 로직을 네임스페이스 포맷으로 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Function Call Reason 필드 추가
+- [x] REQUIREMENTS.md 와 컨텍스트 문서에 FUNCTION_CALL reason 필드 요구사항을 반영한다.
+- [x] reason 필드가 포함되었는지 검증하는 테스트를 먼저 수정한다.
+- [x] FUNCTION_CALL reason 필드를 포함하도록 시스템 프롬프트 생성을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

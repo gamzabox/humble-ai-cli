@@ -948,7 +948,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		}
 	}
 
-	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"server\": \"server name\",\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t}\n}\n- Example\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t}\n}")
+	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"server\": \"server name\",\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t},\n\t\"reason\": \"reason why calling this function\"\n}\n- Example\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t},\n\t\"reason\": \"why this tool call is needed\"\n}")
 
 	return strings.TrimRight(builder.String(), "\n")
 }

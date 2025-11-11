@@ -64,7 +64,8 @@
   	"arguments": {
   	  "arg1 name": "argument1 value",
   	  "arg2 name": "argument2 value",
-  	}
+  	},
+  	"reason": "reason why calling this function"
   }
   - Example
   {
@@ -72,7 +73,8 @@
   	"name": "context7__resolve-library-id",
   	"arguments": {
   	  "libraryName": "java"
-  	}
+  	},
+  	"reason": "why this tool call is needed"
   }
   ```
 - 기본 system prompt 는 다음 내용을 정확히 포함해야 한다.
