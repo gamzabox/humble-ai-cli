@@ -139,9 +139,3 @@
 - [x] REQUIREMENTS.md 에 새로운 default system prompt 요구사항을 반영한다.
 - [x] 기본 system prompt 생성 테스트를 신규 요구사항에 맞게 업데이트한다.
 - [x] 기본 system prompt 생성 로직을 수정하고 `go test ./...` 로 검증한다.
-
-# MCP Tool Role Server Prefix
-- [x] REQUIREMENTS.md 에 MCP tool role 서버명 요구사항을 반영한다.
-- [x] MCP tool role 포맷을 검증하는 테스트를 작성하거나 업데이트한다.
-- [x] LLM provider 가 MCP server name 기반 role 을 설정하도록 구현한다.
-- [x] `go test ./...` 를 실행해 변경 사항을 검증한다.
