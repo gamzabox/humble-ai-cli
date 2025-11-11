@@ -154,7 +154,7 @@
   Ask minimal questions required to move forward.
   ```
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
-- MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.
+- MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 `tool:<MCP server name>` 형식으로 설정한다. (예: context7 -> `tool:context7`)
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.
 - 모든 LLM 호출 시 `temperature` 파라미터는 0.1 로 고정해 전달한다.
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.

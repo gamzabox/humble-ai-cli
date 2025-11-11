@@ -303,7 +303,7 @@ finished:
 		if len(msg.ToolCalls) > 0 {
 			t.Fatalf("tool_calls field should be empty in context payload: %+v", msg.ToolCalls)
 		}
-		if msg.Role == "tool" && msg.ToolName == "get_weather" {
+		if msg.Role == "tool:weather" && msg.ToolName == "get_weather" {
 			foundToolRole = true
 			continue
 		}
@@ -492,7 +492,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	foundTool := false
 	for _, msg := range secondPayload.Messages {
-		if msg.Role == "tool" && msg.ToolName == "resolve-library-id" {
+		if msg.Role == "tool:context7" && msg.ToolName == "resolve-library-id" {
 			foundTool = true
 			break
 		}
@@ -861,7 +861,7 @@ finished:
 	for _, entry := range entries {
 		if strings.Contains(entry, "LLM request") {
 			requestLogs++
-			if strings.Contains(entry, `"role":"tool"`) && strings.Contains(entry, `"name":"add"`) {
+			if strings.Contains(entry, `"role":"tool:calculator"`) && strings.Contains(entry, `"name":"add"`) {
 				hasToolPayload = true
 			}
 		}

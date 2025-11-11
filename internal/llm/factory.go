@@ -28,6 +28,14 @@ type Factory struct {
 
 const defaultTemperature = 0.1
 
+func toolRole(server string) string {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return "tool"
+	}
+	return "tool:" + server
+}
+
 // NewFactory builds a Factory with optional custom HTTP client.
 func NewFactory(client HTTPClient) *Factory {
 	if client == nil {
@@ -277,7 +285,7 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 	}
 
 	toolMessage := openAIMessage{
-		Role:       "tool",
+		Role:       toolRole(definition.Server),
 		Content:    content,
 		ToolCallID: call.Call.ID,
 		Name:       definition.Name,
@@ -828,7 +836,7 @@ func (p *ollamaProvider) awaitToolResult(
 	}
 
 	return ollamaMessage{
-		Role:     "tool",
+		Role:     toolRole(definition.Server),
 		Content:  content,
 		ToolName: call.Call.Function.Name,
 	}, nil

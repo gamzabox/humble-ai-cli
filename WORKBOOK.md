@@ -574,3 +574,10 @@ Ask minimal questions required to move forward.
 ---
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# MCP 실행결과 role 에 MCP Server name 을 반영 하도록 수정
+- MCP tool call 결과 메시지의 `role` 값을 `tool:MCP server name` 으로 로 설정한다.
+- 예를 들어 context7 MCP 의 tool 을 호출 했다면 role 은 "tool:context7" 으로 설정 됨
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
