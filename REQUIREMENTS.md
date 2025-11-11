@@ -11,7 +11,7 @@
   ## context7
   These are tool name, description and input schema.
 
-  - **resolve-library-id**: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+  - **context7__resolve-library-id**: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
       Input Schema:
       {
         "type": "object",
@@ -28,7 +28,7 @@
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
 
-  - **get-library-docs**: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+  - **context7__get-library-docs**: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
       Input Schema:
       {
         "type": "object",
@@ -53,6 +53,7 @@
         "$schema": "http://json-schema.org/draft-07/schema#"
       }
   ```
+- MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
 - System prompt 의 마지막에는 다음 FUNCTION_CALL 참고 블록을 추가한다.
   ```
   FUNCTION_CALL:
@@ -68,7 +69,7 @@
   - Example
   {
   	"server": "context7",
-  	"name": "resolve-library-id",
+  	"name": "context7__resolve-library-id",
   	"arguments": {
   	  "libraryName": "java"
   	}

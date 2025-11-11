@@ -139,3 +139,9 @@
 - [x] REQUIREMENTS.md 에 새로운 default system prompt 요구사항을 반영한다.
 - [x] 기본 system prompt 생성 테스트를 신규 요구사항에 맞게 업데이트한다.
 - [x] 기본 system prompt 생성 로직을 수정하고 `go test ./...` 로 검증한다.
+
+# MCP Tool Name 네임스페이스 추가
+- [x] REQUIREMENTS.md/WORKBOOK.md 에 MCP tool name 네임스페이스 요구사항을 반영한다.
+- [x] MCP tool name 네임스페이스 포맷을 검증하는 테스트를 먼저 업데이트한다.
+- [x] MCP tool name 생성 로직을 네임스페이스 포맷으로 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

@@ -865,11 +865,19 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 			if desc == "" {
 				desc = "No description provided."
 			}
+			serverName := strings.TrimSpace(srv.Name)
+			toolName := strings.TrimSpace(fn.Name)
+			namespaced := fn.Name
+			if serverName != "" && toolName != "" {
+				namespaced = fmt.Sprintf("%s__%s", serverName, toolName)
+			} else if toolName != "" {
+				namespaced = toolName
+			}
 			if serverDesc != "" {
 				desc = fmt.Sprintf("%s — %s", serverDesc, desc)
 			}
 			defs = append(defs, llm.ToolDefinition{
-				Name:        fn.Name,
+				Name:        namespaced,
 				Description: desc,
 				Server:      srv.Name,
 				Method:      fn.Name,

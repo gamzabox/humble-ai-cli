@@ -27,7 +27,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 		},
 		Tools: []ToolDefinition{
 			{
-				Name:        "get_weather",
+				Name:        "weather__get_weather",
 				Description: "Get the weather in a given city",
 				Server:      "weather",
 				Method:      "get_weather",
@@ -76,7 +76,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "## MCP Server: weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "- name: **get_weather**") {
+	if !strings.Contains(systemMsg.Content, "- name: **weather__get_weather**") {
 		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "Input Schema:") {
@@ -94,7 +94,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, `"server": "context7"`) {
 		t.Fatalf("expected FUNCTION_CALL example to include server, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, `"name": "resolve-library-id"`) {
+	if !strings.Contains(systemMsg.Content, `"name": "context7__resolve-library-id"`) {
 		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
 	}
 
@@ -136,7 +136,7 @@ func TestOllamaProviderStreamWithToolCalls(t *testing.T) {
 		case 1:
 			firstBody = body
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Tokyo"}}}]}, "done": false}`+"\n")
+			io.WriteString(w, `{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"weather__get_weather","arguments":{"city":"Tokyo"}}}]}, "done": false}`+"\n")
 			io.WriteString(w, `{"message":{"role":"assistant","content":""}, "done": true}`+"\n")
 		case 2:
 			secondBody = body
@@ -169,7 +169,7 @@ func TestOllamaProviderStreamWithToolCalls(t *testing.T) {
 		},
 		Tools: []ToolDefinition{
 			{
-				Name:        "get_weather",
+				Name:        "weather__get_weather",
 				Description: "Fetch the weather for a given city",
 				Server:      "weather",
 				Method:      "get_weather",
@@ -303,13 +303,13 @@ finished:
 		if len(msg.ToolCalls) > 0 {
 			t.Fatalf("tool_calls field should be empty in context payload: %+v", msg.ToolCalls)
 		}
-		if msg.Role == "tool" && msg.ToolName == "get_weather" {
+		if msg.Role == "tool" && msg.ToolName == "weather__get_weather" {
 			foundToolRole = true
 			continue
 		}
 		if msg.Role == "assistant" {
 			content := strings.TrimSpace(msg.Content)
-			if strings.Contains(content, `"name":"get_weather"`) {
+			if strings.Contains(content, `"name":"weather__get_weather"`) {
 				toolCallContent = content
 			}
 		}
@@ -330,7 +330,7 @@ finished:
 	if callPayload.Server != "weather" {
 		t.Fatalf("unexpected call server: %s", callPayload.Server)
 	}
-	if callPayload.Name != "get_weather" {
+	if callPayload.Name != "weather__get_weather" {
 		t.Fatalf("unexpected call name: %s", callPayload.Name)
 	}
 	if callPayload.Arguments["city"] != "Tokyo" {
@@ -344,7 +344,7 @@ finished:
 func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	t.Parallel()
 
-	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"server\": \"context7\",\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
+	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
 
 	var (
 		requestCount int
@@ -400,7 +400,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 		},
 		Tools: []ToolDefinition{
 			{
-				Name:        "resolve-library-id",
+				Name:        "context7__resolve-library-id",
 				Description: "Resolve Context7 library IDs",
 				Server:      "context7",
 				Method:      "resolve-library-id",
@@ -492,7 +492,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	foundTool := false
 	for _, msg := range secondPayload.Messages {
-		if msg.Role == "tool" && msg.ToolName == "resolve-library-id" {
+		if msg.Role == "tool" && msg.ToolName == "context7__resolve-library-id" {
 			foundTool = true
 			break
 		}

@@ -142,7 +142,7 @@ Never use natural language when you call function.
 FUNCTIONS:
 [
   {
-    "name": "resolve-library-id",
+    "name": "context7__resolve-library-id",
     "description": "Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.",
     "parameters": {
       "type": "object",
@@ -157,15 +157,15 @@ FUNCTIONS:
     }
   },
   {
-    "name": "get-library-docs",
-    "description": "Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.",
+    "name": "context7__get-library-docs",
+    "description": "Fetches up-to-date documentation for a library. You must call 'context7__resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.",
     "parameters": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "context7CompatibleLibraryID": { 
           "type": "string", 
-          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'." 
+          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'context7__resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'." 
         },
         "topic": {
           "type": "string", 
@@ -190,7 +190,7 @@ FUNCTION_CALL:
 - Example
 {
 	"server": "context7",
-	"name": "resolve-library-id",
+	"name": "context7__resolve-library-id",
 	"arguments": {
 	  "libraryName": "java"
 	}
@@ -211,7 +211,7 @@ FUNCTION_CALL:
   "messages": [
     {
       "role": "system",
-      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call route_intent function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call route_intent function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# context7__resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'context7__get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# context7__get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'context7__resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
     },
     {
       "role": "user",
@@ -229,7 +229,7 @@ FUNCTION_CALL:
   "created_at": "2025-11-09T11:24:08.753147128Z",
   "message": {
     "role": "assistant",
-    "content": "{\n\t\"name\": \"route_intent\",\n\t\"arguments\": {\n\t\t\"decision\": \"call_tool\",\n\t\t\"tool\": \"resolve-library-id\"\n\t}\n}"
+    "content": "{\n\t\"name\": \"route_intent\",\n\t\"arguments\": {\n\t\t\"decision\": \"call_tool\",\n\t\t\"tool\": \"context7__resolve-library-id\"\n\t}\n}"
   },
   "done": true,
   "done_reason": "stop",
@@ -242,7 +242,7 @@ FUNCTION_CALL:
 }
 ```
 
-1. 이제 LLM 이 선택한 툴 resolve-library-id 에 대한 구체적인 Schema 를 설정하고 resolve-library-id 를 호출 하도록 system prompt 를 설정해 LLM 에게 전달(route_intent 호출에 대한 assistant content 는 context 에 포함되지 않음에 주의할것)
+1. 이제 LLM 이 선택한 툴 context7__resolve-library-id 에 대한 구체적인 Schema 를 설정하고 context7__resolve-library-id 를 호출 하도록 system prompt 를 설정해 LLM 에게 전달(route_intent 호출에 대한 assistant content 는 context 에 포함되지 않음에 주의할것)
 ```json
 {
   "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
@@ -250,7 +250,7 @@ FUNCTION_CALL:
   "messages": [
     {
       "role": "system",
-      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nCALL_FUNCTION:\r\nYou have to call function **resolve-library-id**\r\nNever use natural language.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"resolve-library-id\",\r\n\t\"description\": \"Resolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"libraryName\": { \"type\": \"string\", \"description\": \"Library name to search for and retrieve a Context7-compatible library ID.\" }\r\n\t  },\r\n\t  \"required\": [\"libraryName\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nCALL_FUNCTION:\r\nYou have to call function **context7__resolve-library-id**\r\nNever use natural language.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"context7__resolve-library-id\",\r\n\t\"description\": \"Resolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"libraryName\": { \"type\": \"string\", \"description\": \"Library name to search for and retrieve a Context7-compatible library ID.\" }\r\n\t  },\r\n\t  \"required\": [\"libraryName\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
     },
     {
       "role": "user",
@@ -269,7 +269,7 @@ FUNCTION_CALL:
   "created_at": "2025-11-09T11:36:23.088575044Z",
   "message": {
     "role": "assistant",
-    "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+    "content": "{\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
   },
   "done": true,
   "done_reason": "stop",
@@ -282,7 +282,7 @@ FUNCTION_CALL:
 }
 ```
 
-1. Assistant 는 resolve-library-id 를 호출하고 결과를 Context 에 추가. 여기서 LLM 이 추가로 Tool call 이 필요 할 수 있으니 route intent 를 다시 보냄(Assistant 의 MCP Tool 요청이 context 에 포함된 것에 주의 할 것)
+1. Assistant 는 context7__resolve-library-id 를 호출하고 결과를 Context 에 추가. 여기서 LLM 이 추가로 Tool call 이 필요 할 수 있으니 route intent 를 다시 보냄(Assistant 의 MCP Tool 요청이 context 에 포함된 것에 주의 할 것)
 ```json
 {
   "model": "qwen3:30b-a3b-instruct-2507-q4_K_M",
@@ -290,7 +290,7 @@ FUNCTION_CALL:
   "messages": [
     {
       "role": "system",
-      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call **route_intent** function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
+      "content": "You are the humble-ai command line assistant. MCP server tooling is available.\r\n\r\nWhen you need external data or actions, follow this process:\r\n\r\n1. If a tool call is required, emit a tool call chunk specifying:\r\n   - target server\r\n   - method\r\n   - JSON arguments\r\n\r\n2. After a tool call returns results:\r\n   - Analyze the results\r\n   - If more tool calls are needed, continue calling tools\r\n   - Do NOT produce a final answer until all required tool calls are complete\r\n\r\n3. Only after all necessary tool calls are finished:\r\n   - Integrate the collected results\r\n   - Provide the final, well-structured response to the user\r\n\r\nRULES:\r\n- You may call multiple tools in sequence if needed.\r\n- Always wait for each tool call result before deciding the next action.\r\n- The final response must include the integrated outcome of all tool call results.\r\n\r\nROUTE INTENT:\r\nYou have to be a strict router. Choose the single best next action.\r\n\r\nYou must call **route_intent** function.\r\nNever use natural language.\r\nDecision will be call_tool if you need tool described on TOOL CATALOG.\r\nDecision will be call_tool if you are ready to generate final answer.\r\n\r\nTOOL CATALOG (do not reveal to user):\r\n# context7__resolve-library-id\r\nResolves a package\/product name to a Context7-compatible library ID and returns a list of matching libraries.\r\nYou MUST call this function before 'context7__get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\nSelection Process:\r\n1. Analyze the query to understand what library\/package the user is looking for\r\n2. Return the most relevant match based on:\r\n- Name similarity to the query (exact matches prioritized)\r\n- Description relevance to the query's intent\r\n- Documentation coverage (prioritize libraries with higher Code Snippet counts)\r\n- Trust score (consider libraries with scores of 7-10 more authoritative)\r\n\r\nResponse Format:\r\n- Return the selected library ID in a clearly marked section\r\n- Provide a brief explanation for why this library was chosen\r\n- If multiple good matches exist, acknowledge this but proceed with the most relevant one\r\n- If no good matches exist, clearly state this and suggest query refinements\r\n\r\nROUTING RULES:\r\n1) Pick exactly one action: call_tool(tool, args) OR finalize.\r\n2) Prefer the least-latency tool that satisfies the goal.\r\n3) If required inputs are missing, plan to call a tool that acquires them first (e.g., fetch_html before extract_meta).\r\n4) Never call tools redundantly. If prior tool output already satisfies inputs, use that.\r\n5) Output MUST be a function call to route_intent with JSON arguments only (no natural language).\r\n\r\n# context7__get-library-docs\r\nFetches up-to-date documentation for a library. You must call 'context7__resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '\/org\/project' or '\/org\/project\/version' in their query.\r\n\r\n\r\nFUNCTION:\r\n{\r\n\t\"name\": \"route_intent\",\r\n\t\"description\": \"Decide the next action.\",\r\n\t\"parameters\": {\r\n\t  \"type\": \"object\",\r\n\t  \"additionalProperties\": false,\r\n\t  \"properties\": {\r\n\t\t\"decision\": { \"enum\": [\"call_tool\", \"finalize\"] },\r\n\t\t\"tool\": { \"type\": \"string\", \"nullable\": true }\r\n\t  },\r\n\t  \"required\": [\"decision\"]\r\n\t}\r\n}\r\n\r\nFUNCTION_CALL:\r\n- Schema\r\n{\r\n\t\"server\": \"server name\",\r\n\t\"name\": \"function name\",\r\n\t\"arguments\": {\r\n\t  \"arg1 name\": \"argument1 value\",\r\n\t  \"arg2 name\": \"argument2 value\",\r\n\t}\r\n}\r\n- Example\r\n{\r\n\t\"server\": \"router\",\r\n\t\"name\": \"route_intent\",\r\n\t\"arguments\": {\r\n\t  \"decision\": \"call_tool\",\r\n\t  \"tool\": \"fetch_html\",\r\n\t}\r\n}\r\n"
     },
     {
       "role": "user",
@@ -298,7 +298,7 @@ FUNCTION_CALL:
     },
     {
 	  "role": "assistant",
-      "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+      "content": "{\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
     },
     {
       "role": "tool",
@@ -346,7 +346,7 @@ FUNCTION_CALL:
     },
     {
 	  "role": "assistant",
-      "content": "{\n\t\"name\": \"resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
+      "content": "{\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"java\"\n\t}\n}"
     },
     {
       "role": "tool",
@@ -373,7 +373,7 @@ FUNCTIONS:
 ## context7
 
 ### Available Tools
-- resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+- context7__resolve-library-id: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
     Input Schema:
     {
       "type": "object",
@@ -390,14 +390,14 @@ FUNCTIONS:
       "$schema": "http://json-schema.org/draft-07/schema#"
     }
 
-- get-library-docs: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+- context7__get-library-docs: Fetches up-to-date documentation for a library. You must call 'context7__resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
     Input Schema:
     {
       "type": "object",
       "properties": {
         "context7CompatibleLibraryID": {
           "type": "string",
-          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
+          "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'context7__resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
         },
         "topic": {
           "type": "string",
@@ -428,7 +428,7 @@ FUNCTIONS:
     {
       "type": "function",
       "function": {
-        "name": "resolve-library-id",
+        "name": "context7__resolve-library-id",
         "arguments": {
           "libraryName": "fastmcp"
         }
@@ -442,7 +442,7 @@ FUNCTIONS:
 ```json
 {
   "role": "assistant",
-  "content": "{￦"name￦": ￦"resolve-library-id￦",￦"arguments￦": {￦"libraryName￦": ￦"fastmcp￦"}}"
+  "content": "{￦"name￦": ￦"context7__resolve-library-id￦",￦"arguments￦": {￦"libraryName￦": ￦"fastmcp￦"}}"
 }
 ```
 
@@ -576,5 +576,12 @@ If information is incomplete, ambiguous, or missing, ask **targeted questions on
 Ask minimal questions required to move forward.
 
 ---
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# tool name 에 MCP Server name 을 namespace 로 추가
+- 기존에 tool name 만 사용하던 것을 tool name 앞에 server name 을 추가
+- tool name format: <server_name>__<tool_name> 
+- e.g. context7__resolve-library-id
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
