@@ -56,4 +56,4 @@ myapp.exe
 .DS_Store # macOS
 Thumbs.db # Windows
 
-chat_history/
+humble-ai-cli*

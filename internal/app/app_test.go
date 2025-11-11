@@ -849,8 +849,17 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	}
 
 	content := string(bytes.TrimSpace(data))
-	if !strings.Contains(content, "MCP server tooling") {
-		t.Fatalf("expected default prompt to mention MCP tooling, got:\n%s", content)
+	if !strings.Contains(content, "You are a **tool-first AI Agent**") {
+		t.Fatalf("expected default prompt to mention tool-first AI agent, got:\n%s", content)
+	}
+	if !strings.Contains(content, "## **1) Core Rules**") {
+		t.Fatalf("expected default prompt to include core rules heading, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Do NOT call the same tool with the same arguments more than once.") {
+		t.Fatalf("expected default prompt to include duplicate tool call guidance, got:\n%s", content)
+	}
+	if !strings.Contains(content, "## **5) Asking the User for Missing Information**") {
+		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
 	}
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")

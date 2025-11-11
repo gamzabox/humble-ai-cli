@@ -73,7 +73,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
 		t.Fatalf("expected connected server heading in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "## weather") {
+	if !strings.Contains(systemMsg.Content, "## MCP Server: weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "- name: **get_weather**") {
