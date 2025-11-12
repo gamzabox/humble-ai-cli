@@ -138,6 +138,9 @@
   Do NOT expose unnecessary internal details, logs, or stack traces
   Provide only concise and relevant information
 
+- 기본 system prompt 는 위 내용을 포함한 상태로 다음 문장을 추가해야 한다.
+  - `If you cannot find a suitable tool for the user's request, generate the answer yourself.`
+- 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO TOOL CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
   ---
 
   ## **4) Multi-Tool Result Synthesis**

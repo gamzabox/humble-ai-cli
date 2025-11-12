@@ -618,5 +618,9 @@ Choose the MCP server to enable/disable (0 to cancel):
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
 
 
+# 활성화된 Tool 이 없는 경우에 대한 프롬프트 처리 강화
+- enabled 된 MCP Server 가 없을경우 MCP tool schema 안내 영역에 **NO TOOL CONNECTED** 문구를 출력 할것
+- Default system prompt 에 다음 내용을 추가(in English)
+"사용자 요청을 위한 적절한 Tool 을 찾을 수 없을 경우 스스로 답변을 생성 할 것"
 
-
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

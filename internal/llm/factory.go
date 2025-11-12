@@ -870,14 +870,18 @@ func enhanceSystemPromptWithToolSchema(prompt string, defs []ToolDefinition) str
 }
 
 func buildToolSchemaPrompt(defs []ToolDefinition) string {
-	if len(defs) == 0 {
-		return ""
-	}
-
 	type toolEntry struct {
 		name        string
 		description string
 		parameters  map[string]any
+	}
+
+	var builder strings.Builder
+	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
+
+	if len(defs) == 0 {
+		builder.WriteString("\n\n**NO TOOL CONNECTED**")
+		return strings.TrimRight(builder.String(), "\n")
 	}
 
 	groups := make(map[string][]toolEntry)
@@ -909,9 +913,6 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		serverNames = append(serverNames, server)
 	}
 	sort.Strings(serverNames)
-
-	var builder strings.Builder
-	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
 
 	for _, server := range serverNames {
 		builder.WriteString("\n## MCP Server: ")

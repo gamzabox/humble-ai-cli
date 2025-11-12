@@ -350,7 +350,8 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"* “Which browser would you like to use?”\n" +
 		"* “Do you already have login credentials?”\n" +
 		"* “Which selector should I extract data from?”\n\n" +
-		"Ask minimal questions required to move forward.\n"
+		"Ask minimal questions required to move forward.\n\n" +
+		"If you cannot find a suitable tool for the user's request, generate the answer yourself.\n"
 }
 
 func (a *App) setupSignals(ch chan os.Signal) {

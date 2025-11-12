@@ -882,6 +882,9 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "## **5) Asking the User for Missing Information**") {
 		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
 	}
+	if !strings.Contains(content, "If you cannot find a suitable tool for the user's request, generate the answer yourself.") {
+		t.Fatalf("expected default prompt to instruct answering without tools when needed, got:\n%s", content)
+	}
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
 	if err := os.WriteFile(systemPromptPath, custom, 0o644); err != nil {

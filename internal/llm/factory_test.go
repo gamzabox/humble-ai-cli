@@ -117,6 +117,47 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildOllamaRequestWithoutToolsAddsNoToolConnectedMessage(t *testing.T) {
+	t.Parallel()
+
+	req := ChatRequest{
+		Model:        "llama3.2",
+		SystemPrompt: "Base prompt.",
+		Stream:       true,
+		Messages: []Message{
+			{Role: "user", Content: "hello?"},
+		},
+	}
+
+	data, err := buildOllamaRequest(req)
+	if err != nil {
+		t.Fatalf("buildOllamaRequest returned error: %v", err)
+	}
+
+	var payload ollamaRequestPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	if len(payload.Messages) == 0 {
+		t.Fatalf("expected at least one message in payload")
+	}
+
+	systemMsg := payload.Messages[0]
+	if systemMsg.Role != "system" {
+		t.Fatalf("expected first message to have system role, got %s", systemMsg.Role)
+	}
+	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
+		t.Fatalf("expected connected servers heading in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "**NO TOOL CONNECTED**") {
+		t.Fatalf("expected NO TOOL CONNECTED notice in system prompt, got %q", systemMsg.Content)
+	}
+	if strings.Contains(systemMsg.Content, "- name: **") {
+		t.Fatalf("expected no tool entries when servers are absent, got %q", systemMsg.Content)
+	}
+}
+
 func TestOllamaProviderStreamWithToolCalls(t *testing.T) {
 	t.Parallel()
 

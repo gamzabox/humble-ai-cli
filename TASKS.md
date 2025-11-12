@@ -157,3 +157,9 @@
 - [x] /toggle-mcp 동작을 검증하는 테스트를 추가한다.
 - [x] /toggle-mcp 커맨드를 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# NO TOOL CONNECTED Prompt Handling
+- [x] NO TOOL CONNECTED 프롬프트 요구사항을 REQUIREMENTS.md에 동적으로 반영한다.
+- [x] MCP 서버 비활성화 시 tool schema 프롬프트가 `**NO TOOL CONNECTED**` 를 출력하는 테스트를 추가한다.
+- [x] Tool schema 프롬프트 생성 로직을 수정해 동작을 완료한다.
+- [x] `go test ./...` 를 실행해 변경 사항을 검증한다.
