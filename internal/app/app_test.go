@@ -870,20 +870,20 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	}
 
 	content := string(bytes.TrimSpace(data))
-	if !strings.Contains(content, "You are a **tool-first AI Agent**") {
-		t.Fatalf("expected default prompt to mention tool-first AI agent, got:\n%s", content)
+	if !strings.Contains(content, "You are a **tool-enabled AI Agent**") {
+		t.Fatalf("expected default prompt to mention tool-enabled AI agent, got:\n%s", content)
 	}
 	if !strings.Contains(content, "## **1) Core Rules**") {
 		t.Fatalf("expected default prompt to include core rules heading, got:\n%s", content)
 	}
-	if !strings.Contains(content, "Do NOT call the same tool with the same arguments more than once.") {
-		t.Fatalf("expected default prompt to include duplicate tool call guidance, got:\n%s", content)
+	if !strings.Contains(content, "If a user request is determined to require a tool call") {
+		t.Fatalf("expected default prompt to include tool selection guidance, got:\n%s", content)
 	}
 	if !strings.Contains(content, "## **5) Asking the User for Missing Information**") {
 		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
 	}
-	if !strings.Contains(content, "If you cannot find a suitable tool for the user's request, generate the answer yourself.") {
-		t.Fatalf("expected default prompt to instruct answering without tools when needed, got:\n%s", content)
+	if !strings.Contains(content, "Ask minimal questions required to move forward.") {
+		t.Fatalf("expected default prompt to end with minimal question guidance, got:\n%s", content)
 	}
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
