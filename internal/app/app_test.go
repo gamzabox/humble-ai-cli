@@ -879,7 +879,7 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "If a user request is determined to require a tool call") {
 		t.Fatalf("expected default prompt to include tool selection guidance, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## **5) Asking the User for Missing Information**") {
+	if !strings.Contains(content, "## **6) Asking the User for Missing Information**") {
 		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
 	}
 	if !strings.Contains(content, "Ask minimal questions required to move forward.") {

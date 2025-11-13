@@ -328,12 +328,20 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"   * suggested next steps if helpful\n\n" +
 		"9. **Generate the final answer concisely and clearly.**\n\n" +
 		"---\n\n" +
-		"## **2) Tool Call Protocol**\n\n" +
+		"## **2) Route-Intent Tool Calling Flow**\n\n" +
+		"**MUST CALL choose-tool first always before calling MCP tool to get input schema**\n" +
+		"**DO NOT CALL TOOL WITHOUT JSON SCHEMA**\n\n" +
+		"1. Invoke the choose-tool tool with the selected tool name.\n" +
+		"2. Receive the Input Schema for the chosen tool.\n" +
+		"3. Populate all required properties according to the schema and call the tool.\n" +
+		"4. Wait for the tool’s response and use the returned result in the final answer.\n\n" +
+		"---\n\n" +
+		"## **3) Tool Call Protocol**\n\n" +
 		"* A tool call message must contain **only the tool invocation** (JSON format).\n" +
 		"* Do not combine multiple tool calls in a single message.\n" +
 		"* Always check previous tool call history to prevent duplicate calls.\n\n" +
 		"---\n\n" +
-		"## **3) Error Handling Rules**\n\n" +
+		"## **4) Error Handling Rules**\n\n" +
 		"If a tool call response indicates an error (timeout, invalid response, HTTP error, non-zero exit code, etc.):\n\n" +
 		"You MUST:\n\n" +
 		"1. **Stop making any further tool calls**\n" +
@@ -342,13 +350,13 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"Do NOT expose unnecessary internal details, logs, or stack traces\n" +
 		"Provide only concise and relevant information\n\n" +
 		"---\n\n" +
-		"## **4) Multi-Tool Result Synthesis**\n\n" +
+		"## **5) Multi-Tool Result Synthesis**\n\n" +
 		"When calling more than one tool:\n\n" +
 		"* Validate and cross-check results when possible\n" +
 		"* If there is a conflict, explain which result is more reliable and why\n" +
 		"* The synthesis/explanation must appear **only in the final natural language answer**, not inside tool calls\n\n" +
 		"---\n\n" +
-		"## **5) Asking the User for Missing Information**\n\n" +
+		"## **6) Asking the User for Missing Information**\n\n" +
 		"If information is incomplete, ambiguous, or missing, ask **targeted questions only for what is required** before tool calls. Examples:\n\n" +
 		"* “Which browser would you like to use?”\n" +
 		"* “Do you already have login credentials?”\n" +
