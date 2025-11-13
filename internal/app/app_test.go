@@ -518,6 +518,164 @@ func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
 	}
 }
 
+func TestAppRespondsWithSchemaForChooseToolCall(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server: "route-intent",
+			Method: "choose-tool",
+			Arguments: map[string]any{
+				"toolName": "calculator__add",
+			},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Adds numbers via MCP."},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{
+					Name:        "add",
+					Description: "Add two numbers.",
+					Parameters: map[string]any{
+						"$schema": "http://json-schema.org/draft-07/schema#",
+						"type":    "object",
+						"properties": map[string]any{
+							"a": map[string]any{"type": "number"},
+							"b": map[string]any{"type": "number"},
+						},
+						"required": []any{"a", "b"},
+					},
+				},
+			},
+		},
+	}
+
+	input := strings.NewReader("Please add\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.IsError {
+			t.Fatalf("expected schema response without error, got: %+v", res)
+		}
+		if !strings.Contains(res.Content, "\"a\"") || !strings.Contains(res.Content, "\"b\"") {
+			t.Fatalf("expected schema content for calculator__add, got %q", res.Content)
+		}
+	default:
+		t.Fatalf("expected choose-tool result to be delivered")
+	}
+
+	if len(mcpExec.Calls()) != 0 {
+		t.Fatalf("expected no MCP calls when only requesting schema")
+	}
+}
+
+func TestAppChooseToolErrorWhenToolMissing(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server: "route-intent",
+			Method: "choose-tool",
+			Arguments: map[string]any{
+				"toolName": "missing__tool",
+			},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{},
+		toolset: map[string][]app.MCPFunction{},
+	}
+
+	input := strings.NewReader("Please add\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if !res.IsError {
+			t.Fatalf("expected error response for missing tool, got %+v", res)
+		}
+		if !strings.Contains(res.Content, "missing__tool") {
+			t.Fatalf("expected error content to mention missing tool, got %q", res.Content)
+		}
+	default:
+		t.Fatalf("expected choose-tool error result")
+	}
+}
+
 func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")

@@ -2,78 +2,63 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 예제와 같이 System Prompt 에 직접 포함해 전달한다.
+- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 System Prompt 에 직접 포함해 전달한다.
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO TOOL CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
   ```
-  FUNCTIONS:
+TOOLS:
 
-  # Connected MCP Servers
+  # Connected Tools
 
-  ## context7
-  These are tool name, description and input schema.
+  ## Internal Tool: route-intent
 
-  - **context7__resolve-library-id**: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+  - name: **choose-tool**
+    - description: Choose tool first which you want call .
+
       Input Schema:
       {
-        "type": "object",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
         "properties": {
-          "libraryName": {
-            "type": "string",
-            "description": "Library name to search for and retrieve a Context7-compatible library ID."
+          "toolName": {
+            "description": "The name of the tool that the agent should route to, based on the user’s intent. This value identifies which tool’s Input Schema should be returned for validation before execution.",
+            "type": "string"
           }
         },
         "required": [
-          "libraryName"
+          "toolName"
         ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "type": "object"
       }
 
-  - **context7__get-library-docs**: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
-      Input Schema:
-      {
-        "type": "object",
-        "properties": {
-          "context7CompatibleLibraryID": {
-            "type": "string",
-            "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
-          },
-          "topic": {
-            "type": "string",
-            "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
-          },
-          "tokens": {
-            "type": "number",
-            "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
-          }
-        },
-        "required": [
-          "context7CompatibleLibraryID"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      }
+  ## MCP Server: context7
+
+  - name: **context7__get-library-docs**
+  - description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+
+  - name: **context7__resolve-library-id**
+  - description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
   ```
+- MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `choose-tool` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
-- System prompt 의 마지막에는 다음 FUNCTION_CALL 참고 블록을 추가한다.
+- System prompt 의 마지막에는 다음 TOOL_CALL 참고 블록을 추가한다.
 ```
-  FUNCTION_CALL:
+  TOOL_CALL:
   - Schema
   {
-  	"name": "function name",
-  	"arguments": {
-  	  "arg1 name": "argument1 value",
-  	  "arg2 name": "argument2 value",
-  	},
-  	"reason": "reason why calling this function"
+	"name": "tool name",
+	"arguments": {
+	  "arg1 name": "argument1 value",
+	  "arg2 name": "argument2 value",
+	},
+	"reason": "reason why calling this tool"
   }
   - Example
   {
-  	"name": "context7__resolve-library-id",
-  	"arguments": {
-  	  "libraryName": "java"
-  	},
-  	"reason": "why this tool call is needed"
+	"name": "good-tool",
+	"arguments": {
+	  "goodArg": "nice"
+	},
+	"reason": "why this tool call is needed"
   }
 ```
 - 기본 system prompt 는 다음 내용을 정확히 포함해야 한다.
@@ -217,7 +202,7 @@ Ask minimal questions required to move forward.
     - /help: 커맨드 리스트와 설명을 보여줌
     - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
-    - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 function 이름과 description 을 출력한다.
+    - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 tool 이름과 description 을 출력한다.
     - /toggle-mcp: mcp-servers.json 에 등록된 MCP 서버 리스트를 번호와 함께 출력하고 현재 enabled 상태를 표시한다. 번호를 선택하면 해당 서버의 enabled 값을 반전하여 파일에 저장하고, 0을 입력하면 취소한다. 설정이 변경되면 CLI 는 즉시 갱신된 enabled 상태를 반영한다.
     - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)

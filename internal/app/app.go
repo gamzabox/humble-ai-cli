@@ -117,6 +117,11 @@ const (
 
 var errToolDeclined = errors.New("mcp call declined by user")
 
+const (
+	routeIntentServerName = "route-intent"
+	routeIntentToolName   = "choose-tool"
+)
+
 // New constructs an App from options.
 func New(opts Options) (*App, error) {
 	if opts.Store == nil {
@@ -958,14 +963,14 @@ func (a *App) printMCPServers(ctx context.Context) error {
 }
 
 func (a *App) availableToolDefinitions() []llm.ToolDefinition {
+	defs := []llm.ToolDefinition{routeIntentToolDefinition()}
 	names := a.sortedMCPServerNames()
 	if len(names) == 0 {
-		return nil
+		return defs
 	}
 
 	a.mcpMu.RLock()
 	defer a.mcpMu.RUnlock()
-	defs := make([]llm.ToolDefinition, 0)
 	for _, name := range names {
 		srv := a.mcpServers[name]
 		serverDesc := strings.TrimSpace(srv.Description)
@@ -989,12 +994,16 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 			if serverDesc != "" {
 				desc = fmt.Sprintf("%s — %s", serverDesc, desc)
 			}
+			params := cloneParameters(fn.Parameters)
+			if params == nil {
+				params = defaultToolParameters()
+			}
 			defs = append(defs, llm.ToolDefinition{
 				Name:        namespaced,
 				Description: desc,
 				Server:      srv.Name,
 				Method:      fn.Name,
-				Parameters:  cloneParameters(fn.Parameters),
+				Parameters:  params,
 			})
 		}
 	}
@@ -1012,6 +1021,35 @@ func (a *App) functionDescription(server, method string) string {
 	return ""
 }
 
+func routeIntentToolDefinition() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Name:        routeIntentToolName,
+		Description: "Choose tool first which you want call .",
+		Server:      routeIntentServerName,
+		Method:      routeIntentToolName,
+		Parameters: map[string]any{
+			"$schema":              "http://json-schema.org/draft-07/schema#",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"toolName": map[string]any{
+					"description": "The name of the tool that the agent should route to, based on the user’s intent. This value identifies which tool’s Input Schema should be returned for validation before execution.",
+					"type":        "string",
+				},
+			},
+			"required": []any{"toolName"},
+			"type":     "object",
+		},
+	}
+}
+
+func defaultToolParameters() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": true,
+	}
+}
+
 func (a *App) logDebug(format string, args ...any) {
 	if a.logger != nil {
 		a.logger.Debugf(format, args...)
@@ -1027,6 +1065,9 @@ func (a *App) logError(format string, args ...any) {
 func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
 	if call == nil {
 		return nil
+	}
+	if call.Server == routeIntentServerName && call.Method == routeIntentToolName {
+		return a.handleChooseToolCall(ctx, call)
 	}
 	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
@@ -1128,6 +1169,76 @@ func formatToolArgument(value any) string {
 		}
 		return string(data)
 	}
+}
+
+func (a *App) handleChooseToolCall(ctx context.Context, call *llm.ToolCall) error {
+	toolName := extractChooseToolName(call.Arguments)
+	if toolName == "" {
+		return a.respondChooseToolError(ctx, call, "toolName argument is required")
+	}
+
+	definition, ok := a.toolDefinitionByName(toolName)
+	if !ok {
+		return a.respondChooseToolError(ctx, call, fmt.Sprintf("tool %q is not available", toolName))
+	}
+
+	schema := cloneParameters(definition.Parameters)
+	if schema == nil {
+		schema = defaultToolParameters()
+	}
+
+	data, err := json.MarshalIndent(schema, "", "  ")
+	if err != nil {
+		return a.respondChooseToolError(ctx, call, fmt.Sprintf("failed to encode schema: %v", err))
+	}
+
+	if call.Respond != nil {
+		if err := call.Respond(ctx, llm.ToolResult{Content: string(data)}); err != nil && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("deliver choose-tool schema: %w", err)
+		}
+	}
+
+	a.logDebug("choose-tool schema provided for %s", toolName)
+	fmt.Fprintf(a.output, "Provided schema for tool %q.\n", toolName)
+	return nil
+}
+
+func (a *App) respondChooseToolError(ctx context.Context, call *llm.ToolCall, message string) error {
+	if call != nil && call.Respond != nil {
+		_ = call.Respond(ctx, llm.ToolResult{Content: message, IsError: true})
+	}
+	fmt.Fprintf(a.errOutput, "choose-tool error: %s\n", message)
+	a.logError("choose-tool error: %s", message)
+	return nil
+}
+
+func extractChooseToolName(args map[string]any) string {
+	for _, key := range []string{"toolName", "tool"} {
+		value, ok := args[key]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			if name := strings.TrimSpace(v); name != "" {
+				return name
+			}
+		default:
+			if name := strings.TrimSpace(fmt.Sprint(v)); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func (a *App) toolDefinitionByName(name string) (llm.ToolDefinition, bool) {
+	for _, def := range a.availableToolDefinitions() {
+		if def.Name == name && def.Server != routeIntentServerName {
+			return def, true
+		}
+	}
+	return llm.ToolDefinition{}, false
 }
 
 func (a *App) enterResponding(cancel context.CancelFunc) {

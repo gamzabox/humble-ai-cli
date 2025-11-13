@@ -17,7 +17,7 @@
 
 # MCP 커맨드 추가
 - [x] /mcp 커맨드 요구사항을 테스트로 정의한다.
-- [x] MCP function 리스트 출력 기능을 구현한다.
+- [x] MCP tool 리스트 출력 기능을 구현한다.
 - [x] 전체 테스트를 실행하고 문서를 갱신한다.
 
 # Logging 기능 추가
@@ -88,7 +88,7 @@
 # Ollama Manual Tool Call 파싱
 - [x] Ollama 함수 호출 JSON 파싱 요구사항을 REQUIREMENTS.md에 반영한다.
 - [x] JSON 형태의 tool call 응답을 처리하는 테스트를 추가한다.
-- [x] Ollama provider가 manual function call JSON 을 MCP tool 호출로 변환하도록 구현한다.
+- [x] Ollama provider가 manual tool call JSON 을 MCP tool 호출로 변환하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
 # Ollama Tool Schema 포맷 갱신
@@ -96,10 +96,10 @@
 - [x] Ollama 요청에 포함되는 시스템 프롬프트가 새 포맷을 따르는지 테스트를 업데이트한다.
 - [x] 시스템 프롬프트 생성 로직을 수정하고 전체 테스트(`go test ./...`)를 통과시킨다.
 
-# FUNCTION_CALL 안내 블록 복원
-- [x] FUNCTION_CALL 안내 블록 추가 요구사항을 REQUIREMENTS.md에 반영한다.
-- [x] FUNCTION_CALL 블록 삽입을 검증하는 테스트를 업데이트한다.
-- [x] FUNCTION_CALL 블록을 생성 로직에 추가하고 `go test ./...` 를 통과시킨다.
+# TOOL_CALL 안내 블록 복원
+- [x] TOOL_CALL 안내 블록 추가 요구사항을 REQUIREMENTS.md에 반영한다.
+- [x] TOOL_CALL 블록 삽입을 검증하는 테스트를 업데이트한다.
+- [x] TOOL_CALL 블록을 생성 로직에 추가하고 `go test ./...` 를 통과시킨다.
 
 # Ollama Tool Call Context JSON
 - [x] 새로운 컨텍스트 요구사항을 검사하는 테스트를 추가한다.
@@ -129,10 +129,10 @@
 - [x] MCP tool 결과 메시지가 role \"tool\" 을 사용하도록 구현을 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
-# Function Call Schema server 필드 추가
-- [x] REQUIREMENTS.md 와 컨텍스트 문서를 FUNCTION_CALL server 필드 요구사항으로 업데이트한다.
-- [x] FUNCTION_CALL server 필드를 검증하는 테스트를 먼저 수정한다.
-- [x] FUNCTION_CALL server 필드를 포함하도록 구현을 갱신한다.
+# Tool Call Schema server 필드 추가
+- [x] REQUIREMENTS.md 와 컨텍스트 문서를 TOOL_CALL server 필드 요구사항으로 업데이트한다.
+- [x] TOOL_CALL server 필드를 검증하는 테스트를 먼저 수정한다.
+- [x] TOOL_CALL server 필드를 포함하도록 구현을 갱신한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
 # Default System Prompt 최신화
@@ -146,10 +146,10 @@
 - [x] MCP tool name 생성 로직을 네임스페이스 포맷으로 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
-# Function Call Reason 필드 추가
-- [x] REQUIREMENTS.md 와 컨텍스트 문서에 FUNCTION_CALL reason 필드 요구사항을 반영한다.
+# Tool Call Reason 필드 추가
+- [x] REQUIREMENTS.md 와 컨텍스트 문서에 TOOL_CALL reason 필드 요구사항을 반영한다.
 - [x] reason 필드가 포함되었는지 검증하는 테스트를 먼저 수정한다.
-- [x] FUNCTION_CALL reason 필드를 포함하도록 시스템 프롬프트 생성을 수정한다.
+- [x] TOOL_CALL reason 필드를 포함하도록 시스템 프롬프트 생성을 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
 # MCP Server Toggle Command
@@ -163,3 +163,9 @@
 - [x] MCP 서버 비활성화 시 tool schema 프롬프트가 `**NO TOOL CONNECTED**` 를 출력하는 테스트를 추가한다.
 - [x] Tool schema 프롬프트 생성 로직을 수정해 동작을 완료한다.
 - [x] `go test ./...` 를 실행해 변경 사항을 검증한다.
+
+# Route Intent Choose-Tool Flow
+- [x] REQUIREMENTS.md 에 route-intent choose-tool 시스템 프롬프트 요구사항을 반영한다.
+- [x] choose-tool 기반 시스템 프롬프트/흐름을 검증하는 테스트를 먼저 업데이트한다.
+- [x] choose-tool 스키마 제공 및 MCP 호출 흐름 구현을 완료한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

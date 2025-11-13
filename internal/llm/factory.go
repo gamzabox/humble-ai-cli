@@ -26,7 +26,11 @@ type Factory struct {
 	client HTTPClient
 }
 
-const defaultTemperature = 0.1
+const (
+	defaultTemperature    = 0.1
+	routeIntentServerName = "route-intent"
+	routeIntentToolName   = "choose-tool"
+)
 
 // NewFactory builds a Factory with optional custom HTTP client.
 func NewFactory(client HTTPClient) *Factory {
@@ -873,39 +877,65 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	type toolEntry struct {
 		name        string
 		description string
-		parameters  map[string]any
 	}
 
-	var builder strings.Builder
-	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
+	var (
+		builder    strings.Builder
+		chooseTool *ToolDefinition
+		groups     = make(map[string][]toolEntry)
+	)
 
-	if len(defs) == 0 {
-		builder.WriteString("\n\n**NO TOOL CONNECTED**")
-		return strings.TrimRight(builder.String(), "\n")
-	}
+	builder.WriteString("TOOLS:\n\n# Connected Tools\n")
 
-	groups := make(map[string][]toolEntry)
 	for _, def := range defs {
+		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
+			copy := def
+			chooseTool = &copy
+			continue
+		}
 		server := strings.TrimSpace(def.Server)
 		if server == "" {
 			server = "default"
 		}
-
-		params := cloneAnyMap(def.Parameters)
-		if params == nil {
-			params = defaultToolSchema()
-		}
-
 		desc := strings.TrimSpace(def.Description)
 		if desc == "" {
 			desc = "No description provided."
 		}
-
 		groups[server] = append(groups[server], toolEntry{
 			name:        def.Name,
 			description: desc,
-			parameters:  params,
 		})
+	}
+
+	if chooseTool != nil {
+		builder.WriteString("\n## Internal Tool: route-intent\n\n")
+		builder.WriteString("- name: **")
+		builder.WriteString(chooseTool.Name)
+		builder.WriteString("**\n")
+		desc := strings.TrimSpace(chooseTool.Description)
+		if desc == "" {
+			desc = "Choose the MCP tool whose schema should be returned before execution."
+		}
+		builder.WriteString("- description: ")
+		builder.WriteString(desc)
+		builder.WriteString("\n\n")
+		builder.WriteString("    Input Schema:\n")
+
+		schema := cloneAnyMap(chooseTool.Parameters)
+		if schema == nil {
+			schema = defaultToolSchema()
+		}
+		schemaJSON, err := json.MarshalIndent(schema, "", "  ")
+		if err != nil {
+			builder.WriteString("    {}\n")
+		} else {
+			lines := strings.Split(string(schemaJSON), "\n")
+			for _, line := range lines {
+				builder.WriteString("    ")
+				builder.WriteString(line)
+				builder.WriteByte('\n')
+			}
+		}
 	}
 
 	serverNames := make([]string, 0, len(groups))
@@ -914,42 +944,31 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	}
 	sort.Strings(serverNames)
 
-	for _, server := range serverNames {
-		builder.WriteString("\n## MCP Server: ")
-		builder.WriteString(server)
-		builder.WriteString("\nThese are tool name, description and input schema.\n")
-
-		tools := groups[server]
-		sort.Slice(tools, func(i, j int) bool {
-			return tools[i].name < tools[j].name
-		})
-
-		for _, tool := range tools {
-			builder.WriteString("\n- name: **")
-			builder.WriteString(tool.name)
-			builder.WriteString("**\n")
-			builder.WriteString("- description: ")
-			builder.WriteString(tool.description)
+	if len(serverNames) == 0 {
+		builder.WriteString("\n**NO TOOL CONNECTED**")
+	} else {
+		for _, server := range serverNames {
+			builder.WriteString("\n## MCP Server: ")
+			builder.WriteString(server)
 			builder.WriteString("\n\n")
-			builder.WriteString("    Input Schema:\n")
 
-			schemaJSON, err := json.MarshalIndent(tool.parameters, "", "  ")
-			if err != nil {
-				builder.WriteString("    {}\n\n")
-				continue
-			}
+			tools := groups[server]
+			sort.Slice(tools, func(i, j int) bool {
+				return tools[i].name < tools[j].name
+			})
 
-			lines := strings.Split(string(schemaJSON), "\n")
-			for _, line := range lines {
-				builder.WriteString("    ")
-				builder.WriteString(line)
-				builder.WriteByte('\n')
+			for _, tool := range tools {
+				builder.WriteString("- name: **")
+				builder.WriteString(tool.name)
+				builder.WriteString("**\n")
+				builder.WriteString("- description: ")
+				builder.WriteString(tool.description)
+				builder.WriteString("\n\n")
 			}
-			builder.WriteByte('\n')
 		}
 	}
 
-	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"server\": \"server name\",\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t},\n\t\"reason\": \"reason why calling this function\"\n}\n- Example\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t},\n\t\"reason\": \"why this tool call is needed\"\n}")
+	builder.WriteString("\n\nTOOL_CALL:\n- Schema\n{\n\t\"name\": \"tool name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t},\n\t\"reason\": \"reason why calling this tool\"\n}\n- Example\n{\n\t\"name\": \"good-tool\",\n\t\"arguments\": {\n\t  \"goodArg\": \"nice\"\n\t},\n\t\"reason\": \"why this tool call is needed\"\n}")
 
 	return strings.TrimRight(builder.String(), "\n")
 }

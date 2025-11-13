@@ -12,7 +12,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
   - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
-  - `/mcp` – display enabled MCP servers and the functions they expose.
+  - `/mcp` – display enabled MCP servers and the tools they expose.
   - `/toggle-mcp` – enable or disable MCP servers defined in `mcp-servers.json`.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 

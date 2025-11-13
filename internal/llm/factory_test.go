@@ -15,6 +15,27 @@ import (
 	"github.com/gamzabox/humble-ai-cli/internal/config"
 )
 
+func testChooseToolDefinition() ToolDefinition {
+	return ToolDefinition{
+		Name:        routeIntentToolName,
+		Description: "Choose tool first which you want call .",
+		Server:      routeIntentServerName,
+		Method:      routeIntentToolName,
+		Parameters: map[string]any{
+			"$schema":              "http://json-schema.org/draft-07/schema#",
+			"additionalProperties": false,
+			"properties": map[string]any{
+				"toolName": map[string]any{
+					"description": "The name of the tool that the agent should route to, based on the user’s intent. This value identifies which tool’s Input Schema should be returned for validation before execution.",
+					"type":        "string",
+				},
+			},
+			"required": []any{"toolName"},
+			"type":     "object",
+		},
+	}
+}
+
 func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -26,6 +47,7 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 			{Role: "user", Content: "what is the weather in tokyo?"},
 		},
 		Tools: []ToolDefinition{
+			testChooseToolDefinition(),
 			{
 				Name:        "weather__get_weather",
 				Description: "Get the weather in a given city",
@@ -70,8 +92,17 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "Base prompt.") {
 		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
-		t.Fatalf("expected connected server heading in system prompt, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
+		t.Fatalf("expected connected tools heading in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "## Internal Tool: route-intent") {
+		t.Fatalf("expected route-intent internal tool heading, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "- name: **choose-tool**") {
+		t.Fatalf("expected choose-tool entry in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "\"toolName\"") {
+		t.Fatalf("expected choose-tool input schema in system prompt, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "## MCP Server: weather") {
 		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
@@ -79,29 +110,26 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "- name: **weather__get_weather**") {
 		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "Input Schema:") {
-		t.Fatalf("expected input schema block in system prompt, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "- description: Get the weather in a given city") {
+		t.Fatalf("expected tool description line in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "FUNCTION_CALL:") {
-		t.Fatalf("expected FUNCTION_CALL block in system prompt, got %q", systemMsg.Content)
+	if strings.Contains(systemMsg.Content, "\"city\":") {
+		t.Fatalf("MCP tool input schema should not be embedded, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, `"server": "server name"`) {
-		t.Fatalf("expected FUNCTION_CALL schema to include server placeholder, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "TOOL_CALL:") {
+		t.Fatalf("expected TOOL_CALL block in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, `"name": "function name"`) {
-		t.Fatalf("expected FUNCTION_CALL schema example in system prompt, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, `"name": "tool name"`) {
+		t.Fatalf("expected TOOL_CALL schema example in system prompt, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, `"reason": "reason why calling this function"`) {
-		t.Fatalf("expected FUNCTION_CALL schema to describe reason placeholder, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, `"reason": "reason why calling this tool"`) {
+		t.Fatalf("expected TOOL_CALL schema to describe reason placeholder, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, `"server": "context7"`) {
-		t.Fatalf("expected FUNCTION_CALL example to include server, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, `"name": "context7__resolve-library-id"`) {
-		t.Fatalf("expected FUNCTION_CALL example to show resolve-library-id, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, `"name": "good-tool"`) {
+		t.Fatalf("expected TOOL_CALL example to show resolve-library-id, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, `"reason": "why this tool call is needed"`) {
-		t.Fatalf("expected FUNCTION_CALL example to include reason, got %q", systemMsg.Content)
+		t.Fatalf("expected TOOL_CALL example to include reason, got %q", systemMsg.Content)
 	}
 
 	var root map[string]any
@@ -127,6 +155,7 @@ func TestBuildOllamaRequestWithoutToolsAddsNoToolConnectedMessage(t *testing.T) 
 		Messages: []Message{
 			{Role: "user", Content: "hello?"},
 		},
+		Tools: []ToolDefinition{testChooseToolDefinition()},
 	}
 
 	data, err := buildOllamaRequest(req)
@@ -147,14 +176,17 @@ func TestBuildOllamaRequestWithoutToolsAddsNoToolConnectedMessage(t *testing.T) 
 	if systemMsg.Role != "system" {
 		t.Fatalf("expected first message to have system role, got %s", systemMsg.Role)
 	}
-	if !strings.Contains(systemMsg.Content, "# Connected MCP Servers") {
-		t.Fatalf("expected connected servers heading in system prompt, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
+		t.Fatalf("expected connected tools heading in system prompt, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "## Internal Tool: route-intent") {
+		t.Fatalf("expected route-intent section even without MCP servers, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "- name: **choose-tool**") {
+		t.Fatalf("expected choose-tool entry even without MCP servers, got %q", systemMsg.Content)
 	}
 	if !strings.Contains(systemMsg.Content, "**NO TOOL CONNECTED**") {
 		t.Fatalf("expected NO TOOL CONNECTED notice in system prompt, got %q", systemMsg.Content)
-	}
-	if strings.Contains(systemMsg.Content, "- name: **") {
-		t.Fatalf("expected no tool entries when servers are absent, got %q", systemMsg.Content)
 	}
 }
 
@@ -295,23 +327,17 @@ finished:
 	if strings.Contains(string(firstBody), `"tools"`) {
 		t.Fatalf("first request should not send tools field: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
-		t.Fatalf("first request missing FUNCTION_CALL instructions: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "TOOL_CALL:") {
+		t.Fatalf("first request missing TOOL_CALL instructions: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
-		t.Fatalf("first request missing server placeholder in FUNCTION_CALL schema: %s", string(firstBody))
-	}
-	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this function\"`) {
-		t.Fatalf("first request missing reason placeholder in FUNCTION_CALL schema: %s", string(firstBody))
-	}
-	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
-		t.Fatalf("first request missing server example in FUNCTION_CALL block: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this tool\"`) {
+		t.Fatalf("first request missing reason placeholder in TOOL_CALL schema: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), `\"reason\": \"why this tool call is needed\"`) {
-		t.Fatalf("first request missing reason example in FUNCTION_CALL block: %s", string(firstBody))
+		t.Fatalf("first request missing reason example in TOOL_CALL block: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
-		t.Fatalf("first request missing connected server heading: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "# Connected Tools") {
+		t.Fatalf("first request missing connected tools heading: %s", string(firstBody))
 	}
 	var firstMap map[string]any
 	if err := json.Unmarshal(firstBody, &firstMap); err != nil {
@@ -397,7 +423,7 @@ finished:
 func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	t.Parallel()
 
-	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
+	manualContent := "I will retrieve docs first.\n```json\n{\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t\t\"libraryName\": \"react-select\"\n\t}\n}\n```\nLet me check what I find next."
 
 	var (
 		requestCount int
@@ -526,23 +552,17 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if len(firstBody) == 0 {
 		t.Fatalf("expected first request body")
 	}
-	if !strings.Contains(string(firstBody), "FUNCTION_CALL:") {
-		t.Fatalf("FUNCTION_CALL block missing in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "TOOL_CALL:") {
+		t.Fatalf("TOOL_CALL block missing in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), `\"server\": \"server name\"`) {
-		t.Fatalf("FUNCTION_CALL schema missing server placeholder in first request: %s", string(firstBody))
-	}
-	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this function\"`) {
-		t.Fatalf("FUNCTION_CALL schema missing reason placeholder in first request: %s", string(firstBody))
-	}
-	if !strings.Contains(string(firstBody), `\"server\": \"context7\"`) {
-		t.Fatalf("FUNCTION_CALL example missing server entry in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), `\"reason\": \"reason why calling this tool\"`) {
+		t.Fatalf("TOOL_CALL schema missing reason placeholder in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), `\"reason\": \"why this tool call is needed\"`) {
-		t.Fatalf("FUNCTION_CALL example missing reason entry in first request: %s", string(firstBody))
+		t.Fatalf("TOOL_CALL example missing reason entry in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "# Connected MCP Servers") {
-		t.Fatalf("connected server heading missing in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "# Connected Tools") {
+		t.Fatalf("connected tools heading missing in first request: %s", string(firstBody))
 	}
 
 	var secondPayload ollamaRequestPayload
