@@ -60,7 +60,6 @@
   FUNCTION_CALL:
   - Schema
   {
-  	"server": "server name",
   	"name": "function name",
   	"arguments": {
   	  "arg1 name": "argument1 value",
@@ -70,7 +69,6 @@
   }
   - Example
   {
-  	"server": "context7",
   	"name": "context7__resolve-library-id",
   	"arguments": {
   	  "libraryName": "java"
