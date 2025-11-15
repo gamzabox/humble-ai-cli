@@ -1,5 +1,6 @@
 # CODING RULES
 - 요구사항은 REQUIREMENTS.md 파일을 통해 확인하고 추가나 수정이 필요하다고 판단되는 경우 REQUIREMENTS.md 파일을 업데이트 한다.
+- WORKBOOK.md 은 개발자가 사용하는 파일로 LLM 은 절대 참고하지 않는다.
 - TASKS.md 파일에 단계별 TASK 리스트 작성한다.
 - 하나의 TASK 가 완료되면 TASKS.md 파일에 해당 TASK 를 체크 표시 하고 다음 TASK 를 진행 한다.
 - TDD 에 기반해 반드시 테스트 코드를 먼저 작성한 다음 구현 작업을 진행 한다.

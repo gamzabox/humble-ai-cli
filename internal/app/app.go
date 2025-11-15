@@ -119,7 +119,7 @@ var errToolDeclined = errors.New("mcp call declined by user")
 
 const (
 	routeIntentServerName = "route-intent"
-	routeIntentToolName   = "choose-tool"
+	routeIntentToolName   = "choose-function"
 )
 
 // New constructs an App from options.
@@ -307,67 +307,123 @@ func (a *App) snapshotFunctions() map[string][]MCPFunction {
 }
 
 func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFunction) string {
-	return "You are a **tool-enabled AI Agent** designed to operate using MCP (Model Context Protocol) servers and tools.\n" +
-		"Your primary objective is to achieve the user’s goal efficiently and safely using available tools.\n\n" +
+	return "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.  \n" +
+		"A **tool** corresponds to an MCP server, and a **function** is an action exposed by that tool.\n\n" +
+		"Your goal is to achieve the user’s intent **safely, accurately, and efficiently using available functions**.\n\n" +
 		"---\n\n" +
-		"## **1) Core Rules**\n\n" +
-		"1. If a user request is determined to require a tool call, invoke the tool declared in the system prompt; otherwise, generate a final response immediately.\n" +
-		"   * DO NOT GUESS and call a tool that is not declared in the system prompt.\n" +
-		"   * If there is no tool defined in the system prompt, you should determine on your own that there is no tool available to call and respond accordingly.\n\n" +
-		"2. **Do NOT call the same tool with the same arguments more than once.**\n" +
-		"   (Deduplicate tool calls to avoid repetition.)\n\n" +
-		"3. **If any tool call returns an error, immediately stop all further tool calls.**\n\n" +
-		"   * Summarize the failure briefly to the user\n" +
-		"   * Ask how they would like to proceed (retry, alternative, provide more info)\n\n" +
-		"4. **When necessary, call multiple tools and combine their results into a final answer.**\n\n" +
-		"   * Avoid unnecessary tool calls; only call the tools required for the user's request.\n\n" +
-		"5. **When sending a tool call message, NEVER include natural language.**\n" +
-		"   Only send valid tool-call JSON — no explanation, no text around it.\n\n" +
-		"6. **If additional information is needed to perform a tool call, ask the user questions first.**\n" +
-		"   Do not guess missing parameters.\n\n" +
-		"7. Before calling a tool, evaluate whether you already have enough information to answer.\n" +
-		"   If you do, respond without calling the tool.\n\n" +
-		"8. When providing final answers (not tool calls), include:\n\n" +
-		"   * reasoning summary\n" +
-		"   * assumptions or limitations\n" +
-		"   * suggested next steps if helpful\n\n" +
-		"9. **Generate the final answer concisely and clearly.**\n\n" +
+		"# 1) Core Behavior Rules\n" +
+		"1. **Call a function only when required by the user's request.**  \n" +
+		"   If a function is unnecessary, provide a natural-language answer immediately.\n" +
+		"2. **Never call a function that is not declared in the system prompt.**  \n" +
+		"   If no functions are available, answer the user directly.\n" +
+		"3. **Do NOT call the same function with the same arguments more than once.**\n" +
+		"4. **If ANY function call returns an error:**\n" +
+		"   - stop calling functions  \n" +
+		"   - summarize the issue briefly  \n" +
+		"   - ask the user how to continue (retry, alternative, more info)\n" +
+		"5. **Function-call messages must contain ONLY valid JSON for the call.**  \n" +
+		"   No natural language before or after it.\n" +
+		"6. **Ask the user for missing information before calling functions.**  \n" +
+		"   Do not guess required parameters.\n" +
+		"7. **If you already have enough information to answer, do not call a function.**\n" +
+		"8. Final natural-language answers (not function calls) must include:\n" +
+		"   - short reasoning summary  \n" +
+		"   - assumptions or limitations  \n" +
+		"   - optional next steps  \n" +
+		"9. Keep final answers **clear and concise**.\n\n" +
 		"---\n\n" +
-		"## **2) Route-Intent Tool Calling Flow**\n\n" +
-		"**MUST CALL choose-tool first always before calling MCP tool to get input schema**\n" +
-		"**DO NOT CALL TOOL WITHOUT JSON SCHEMA**\n\n" +
-		"1. Invoke the choose-tool tool with the selected tool name.\n" +
-		"2. Receive the Input Schema for the chosen tool.\n" +
-		"3. Populate all required properties according to the schema and call the tool.\n" +
-		"4. Wait for the tool’s response and use the returned result in the final answer.\n\n" +
+		"# 2) Function Selection Flow (choose-function MUST be used)\n" +
+		"Before calling ANY MCP function:\n" +
+		"1. Call **choose-function** with:\n" +
+		"   - `functionName`: the selected function  \n" +
+		"   - `reason`: why this function is necessary  \n" +
+		"2. Receive that function’s input schema.\n" +
+		"3. Create a function call using the schema and required properties.\n" +
+		"4. Wait for its response and incorporate results into the final answer.\n\n" +
+		"### Choose Function schema\n" +
+		"{\n" +
+		"  \"chooseFunction\": {\n" +
+		"    \"functionName\": \"Name of the MCP function\",\n" +
+		"    \"reason\": \"Why this function is chosen\"\n" +
+		"  }\n" +
+		"}\n\n" +
+		"### Example\n" +
+		"{\n" +
+		"  \"chooseFunction\": {\n" +
+		"    \"functionName\": \"doAwesomeThing\",\n" +
+		"    \"reason\": \"Need to perform the awesome action\"\n" +
+		"  }\n" +
+		"}\n\n" +
+		"### Input Schema Example\n" +
+		"{\n" +
+		"  \"inputSchema\": {\n" +
+		"    \"type\": \"object\",\n" +
+		"    \"properties\": {\n" +
+		"      \"thingName\": {\n" +
+		"        \"type\": \"string\",\n" +
+		"        \"description\": \"Name of one thing you want to do.\"\n" +
+		"      }\n" +
+		"    },\n" +
+		"    \"required\": [\n" +
+		"      \"thingName\"\n" +
+		"    ],\n" +
+		"    \"additionalProperties\": false,\n" +
+		"    \"$schema\": \"http://json-schema.org/draft-07/schema#\"\n" +
+		"  }\n" +
+		"}\n\n" +
+		"# 3) Function Call Protocol\n" +
+		"- One message = one function call JSON only.\n" +
+		"- Do NOT combine multiple calls in the same message.\n" +
+		"- Review previous calls to avoid duplication.\n\n" +
+		"## Function Call Schema and Example\n" +
+		"### Schema\n" +
+		"{\n" +
+		"  \"functionCall\": {\n" +
+		"    \"server\": \"server_name\",\n" +
+		"    \"name\": \"tool name\",\n" +
+		"    \"arguments\": {\n" +
+		"      \"arg1 name\": \"argument1 value\",\n" +
+		"      \"arg2 name\": \"argument2 value\",\n" +
+		"    },\n" +
+		"    \"reason\": \"reason why calling this tool\"\n" +
+		"  }\n" +
+		"}\n\n" +
+		"### Example\n" +
+		"{\n" +
+		"  \"functionCall\": {\n" +
+		"    \"server\": \"good-server\",\n" +
+		"    \"name\": \"good-tool\",\n" +
+		"    \"arguments\": {\n" +
+		"      \"goodArg\": \"nice\"\n" +
+		"    },\n" +
+		"    \"reason\": \"why this tool call is needed\"\n" +
+		"  }\n" +
+		"}\n\n" +
+		"# 4) Error Handling\n" +
+		"If a function response contains an error:\n" +
+		"1. Stop all further function calls\n" +
+		"2. Provide a short and user-friendly summary\n" +
+		"3. Ask how they want to proceed\n" +
+		"Do not reveal internal logs or stack traces; keep it simple and relevant.\n\n" +
+		"# 5) Handling Multiple Functions\n" +
+		"If multiple functions are used:\n" +
+		"- Validate and cross-check results when possible\n" +
+		"- Explain conflicts using natural-language only in the final answer\n" +
+		"- Do not mix any explanation into function call messages\n\n" +
+		"# 6) Asking for Missing Information\n" +
+		"When user input is incomplete or ambiguous, ask for only what is strictly necessary to proceed.\n" +
+		"Examples:\n" +
+		"- “Which browser should I use?”\n" +
+		"- “Do you have login credentials?”\n" +
+		"- “Which selector should I extract data from?”\n" +
+		"Ask minimal questions required to make the next legitimate function call.\n\n" +
 		"---\n\n" +
-		"## **3) Tool Call Protocol**\n\n" +
-		"* A tool call message must contain **only the tool invocation** (JSON format).\n" +
-		"* Do not combine multiple tool calls in a single message.\n" +
-		"* Always check previous tool call history to prevent duplicate calls.\n\n" +
-		"---\n\n" +
-		"## **4) Error Handling Rules**\n\n" +
-		"If a tool call response indicates an error (timeout, invalid response, HTTP error, non-zero exit code, etc.):\n\n" +
-		"You MUST:\n\n" +
-		"1. **Stop making any further tool calls**\n" +
-		"2. Return a short summary of the issue\n" +
-		"3. Ask the user how to proceed (e.g., retry, provide different input, try alternative tool)\n\n" +
-		"Do NOT expose unnecessary internal details, logs, or stack traces\n" +
-		"Provide only concise and relevant information\n\n" +
-		"---\n\n" +
-		"## **5) Multi-Tool Result Synthesis**\n\n" +
-		"When calling more than one tool:\n\n" +
-		"* Validate and cross-check results when possible\n" +
-		"* If there is a conflict, explain which result is more reliable and why\n" +
-		"* The synthesis/explanation must appear **only in the final natural language answer**, not inside tool calls\n\n" +
-		"---\n\n" +
-		"## **6) Asking the User for Missing Information**\n\n" +
-		"If information is incomplete, ambiguous, or missing, ask **targeted questions only for what is required** before tool calls. Examples:\n\n" +
-		"* “Which browser would you like to use?”\n" +
-		"* “Do you already have login credentials?”\n" +
-		"* “Which selector should I extract data from?”\n\n" +
-		"Ask minimal questions required to move forward.\n\n" +
-		"---\n"
+		"# Connected Tools\n\n" +
+		"## MCP Server: context7\n\n" +
+		"- name: **context7__get-library-docs**\n" +
+		"- description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.\n\n" +
+		"- name: **context7__resolve-library-id**\n" +
+		"- description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.\n\n"
 }
 
 func (a *App) setupSignals(ch chan os.Signal) {
@@ -1024,19 +1080,23 @@ func (a *App) functionDescription(server, method string) string {
 func routeIntentToolDefinition() llm.ToolDefinition {
 	return llm.ToolDefinition{
 		Name:        routeIntentToolName,
-		Description: "Choose tool first which you want call .",
+		Description: "Choose the MCP function whose schema should be returned before execution.",
 		Server:      routeIntentServerName,
 		Method:      routeIntentToolName,
 		Parameters: map[string]any{
 			"$schema":              "http://json-schema.org/draft-07/schema#",
 			"additionalProperties": false,
 			"properties": map[string]any{
-				"toolName": map[string]any{
-					"description": "The name of the tool that the agent should route to, based on the user’s intent. This value identifies which tool’s Input Schema should be returned for validation before execution.",
+				"functionName": map[string]any{
+					"description": "The fully-qualified MCP function name (e.g., server__function) to fetch the schema for.",
+					"type":        "string",
+				},
+				"reason": map[string]any{
+					"description": "A short justification that explains why this function was selected.",
 					"type":        "string",
 				},
 			},
-			"required": []any{"toolName"},
+			"required": []any{"functionName"},
 			"type":     "object",
 		},
 	}
@@ -1067,7 +1127,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 		return nil
 	}
 	if call.Server == routeIntentServerName && call.Method == routeIntentToolName {
-		return a.handleChooseToolCall(ctx, call)
+		return a.handleChooseFunctionCall(ctx, call)
 	}
 	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
@@ -1171,15 +1231,15 @@ func formatToolArgument(value any) string {
 	}
 }
 
-func (a *App) handleChooseToolCall(ctx context.Context, call *llm.ToolCall) error {
-	toolName := extractChooseToolName(call.Arguments)
-	if toolName == "" {
-		return a.respondChooseToolError(ctx, call, "toolName argument is required")
+func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) error {
+	functionName := extractChooseFunctionName(call.Arguments)
+	if functionName == "" {
+		return a.respondChooseFunctionError(ctx, call, "functionName argument is required")
 	}
 
-	definition, ok := a.toolDefinitionByName(toolName)
+	definition, ok := a.toolDefinitionByName(functionName)
 	if !ok {
-		return a.respondChooseToolError(ctx, call, fmt.Sprintf("tool %q is not available", toolName))
+		return a.respondChooseFunctionError(ctx, call, fmt.Sprintf("function %q is not available", functionName))
 	}
 
 	schema := cloneParameters(definition.Parameters)
@@ -1189,31 +1249,31 @@ func (a *App) handleChooseToolCall(ctx context.Context, call *llm.ToolCall) erro
 
 	data, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
-		return a.respondChooseToolError(ctx, call, fmt.Sprintf("failed to encode schema: %v", err))
+		return a.respondChooseFunctionError(ctx, call, fmt.Sprintf("failed to encode schema: %v", err))
 	}
 
 	if call.Respond != nil {
 		if err := call.Respond(ctx, llm.ToolResult{Content: string(data)}); err != nil && !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("deliver choose-tool schema: %w", err)
+			return fmt.Errorf("deliver choose-function schema: %w", err)
 		}
 	}
 
-	a.logDebug("choose-tool schema provided for %s", toolName)
-	fmt.Fprintf(a.output, "Provided schema for tool %q.\n", toolName)
+	a.logDebug("choose-function schema provided for %s", functionName)
+	fmt.Fprintf(a.output, "Provided schema for function %q.\n", functionName)
 	return nil
 }
 
-func (a *App) respondChooseToolError(ctx context.Context, call *llm.ToolCall, message string) error {
+func (a *App) respondChooseFunctionError(ctx context.Context, call *llm.ToolCall, message string) error {
 	if call != nil && call.Respond != nil {
 		_ = call.Respond(ctx, llm.ToolResult{Content: message, IsError: true})
 	}
-	fmt.Fprintf(a.errOutput, "choose-tool error: %s\n", message)
-	a.logError("choose-tool error: %s", message)
+	fmt.Fprintf(a.errOutput, "choose-function error: %s\n", message)
+	a.logError("choose-function error: %s", message)
 	return nil
 }
 
-func extractChooseToolName(args map[string]any) string {
-	for _, key := range []string{"toolName", "tool"} {
+func extractChooseFunctionName(args map[string]any) string {
+	for _, key := range []string{"functionName", "toolName", "tool"} {
 		value, ok := args[key]
 		if !ok {
 			continue

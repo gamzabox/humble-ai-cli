@@ -1,4 +1,4 @@
-**이 파일은 작업용 프롬프트를 기록한 파일로 작업시 참고 하지 않는다.**
+**이 파일은 작업용 프롬프트를 기록한 파일로 과거의 내용이 포함되어 있느니 작업시 참고 하지 않는다.**
 
 # 첫번쨰 기능 구현 프롬프트
 - LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.
@@ -516,3 +516,8 @@ FUNCTIONS:
 ]
 ```
 
+# 변경된 System Prompt 및 Choose Function, Function Call Schema 적용
+- REQUIREMENTS.md 파일에 수정된 system prompt 를 코드에 적용 할것
+- 수정된 system prompt 의 chooseFunction 및 functionCall Schema 를 코드에 적용 할 것
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

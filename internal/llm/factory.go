@@ -29,7 +29,7 @@ type Factory struct {
 const (
 	defaultTemperature    = 0.1
 	routeIntentServerName = "route-intent"
-	routeIntentToolName   = "choose-tool"
+	routeIntentToolName   = "choose-function"
 )
 
 // NewFactory builds a Factory with optional custom HTTP client.
@@ -214,6 +214,16 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 
 			if choice.FinishReason == "stop" {
 				assistantCall.Content = builder.String()
+				if call, cleaned, ok := extractChooseFunctionCall(assistantCall.Content); ok {
+					assistantCall.Content = strings.TrimSpace(cleaned)
+					assistantCall.ToolCalls = []openAIToolCall{call}
+					toolRequests := []toolCallRequest{{Call: call}}
+					logResponse(toolRequests)
+					return &openAIPassResult{
+						assistantMessage: assistantCall,
+						toolCalls:        toolRequests,
+					}, nil
+				}
 				logResponse(nil)
 				return &openAIPassResult{assistantMessage: assistantCall}, nil
 			}
@@ -235,6 +245,16 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	}
 
 	assistantCall.Content = builder.String()
+	if call, cleaned, ok := extractChooseFunctionCall(assistantCall.Content); ok {
+		assistantCall.Content = strings.TrimSpace(cleaned)
+		assistantCall.ToolCalls = []openAIToolCall{call}
+		toolRequests := []toolCallRequest{{Call: call}}
+		logResponse(toolRequests)
+		return &openAIPassResult{
+			assistantMessage: assistantCall,
+			toolCalls:        toolRequests,
+		}, nil
+	}
 	logResponse(nil)
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
@@ -880,17 +900,14 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	}
 
 	var (
-		builder    strings.Builder
-		chooseTool *ToolDefinition
-		groups     = make(map[string][]toolEntry)
+		builder strings.Builder
+		groups  = make(map[string][]toolEntry)
 	)
 
-	builder.WriteString("TOOLS:\n\n# Connected Tools\n")
+	builder.WriteString("# Connected Tools\n")
 
 	for _, def := range defs {
 		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
-			copy := def
-			chooseTool = &copy
 			continue
 		}
 		server := strings.TrimSpace(def.Server)
@@ -907,37 +924,6 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 		})
 	}
 
-	if chooseTool != nil {
-		builder.WriteString("\n## Internal Tool: route-intent\n\n")
-		builder.WriteString("- name: **")
-		builder.WriteString(chooseTool.Name)
-		builder.WriteString("**\n")
-		desc := strings.TrimSpace(chooseTool.Description)
-		if desc == "" {
-			desc = "Choose the MCP tool whose schema should be returned before execution."
-		}
-		builder.WriteString("- description: ")
-		builder.WriteString(desc)
-		builder.WriteString("\n\n")
-		builder.WriteString("    Input Schema:\n")
-
-		schema := cloneAnyMap(chooseTool.Parameters)
-		if schema == nil {
-			schema = defaultToolSchema()
-		}
-		schemaJSON, err := json.MarshalIndent(schema, "", "  ")
-		if err != nil {
-			builder.WriteString("    {}\n")
-		} else {
-			lines := strings.Split(string(schemaJSON), "\n")
-			for _, line := range lines {
-				builder.WriteString("    ")
-				builder.WriteString(line)
-				builder.WriteByte('\n')
-			}
-		}
-	}
-
 	serverNames := make([]string, 0, len(groups))
 	for server := range groups {
 		serverNames = append(serverNames, server)
@@ -945,7 +931,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 	sort.Strings(serverNames)
 
 	if len(serverNames) == 0 {
-		builder.WriteString("\n**NO TOOL CONNECTED**")
+		builder.WriteString("\n**NO FUNCTION CONNECTED**")
 	} else {
 		for _, server := range serverNames {
 			builder.WriteString("\n## MCP Server: ")
@@ -958,7 +944,7 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 			})
 
 			for _, tool := range tools {
-				builder.WriteString("- name: **")
+				builder.WriteString("- function name: **")
 				builder.WriteString(tool.name)
 				builder.WriteString("**\n")
 				builder.WriteString("- description: ")
@@ -967,8 +953,6 @@ func buildToolSchemaPrompt(defs []ToolDefinition) string {
 			}
 		}
 	}
-
-	builder.WriteString("\n\nTOOL_CALL:\n- Schema\n{\n\t\"name\": \"tool name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t},\n\t\"reason\": \"reason why calling this tool\"\n}\n- Example\n{\n\t\"name\": \"good-tool\",\n\t\"arguments\": {\n\t  \"goodArg\": \"nice\"\n\t},\n\t\"reason\": \"why this tool call is needed\"\n}")
 
 	return strings.TrimRight(builder.String(), "\n")
 }
@@ -997,14 +981,19 @@ func parseManualToolCall(content string) ([]openAIToolCall, string) {
 
 		parsed := false
 		for _, block := range blocks {
-			call, ok := parseToolCallJSON(cleaned[block.start:block.end])
-			if !ok {
-				continue
+			segment := cleaned[block.start:block.end]
+			if call, ok := parseChooseFunctionJSON(segment); ok {
+				calls = append(calls, call)
+				cleaned = removeJSONBlock(cleaned, block.start, block.end)
+				parsed = true
+				break
 			}
-			calls = append(calls, call)
-			cleaned = removeJSONBlock(cleaned, block.start, block.end)
-			parsed = true
-			break
+			if call, ok := parseToolCallJSON(segment); ok {
+				calls = append(calls, call)
+				cleaned = removeJSONBlock(cleaned, block.start, block.end)
+				parsed = true
+				break
+			}
 		}
 
 		if !parsed {
@@ -1095,6 +1084,53 @@ func parseToolCallJSON(raw string) (openAIToolCall, bool) {
 			Arguments: argText,
 		},
 	}, true
+}
+
+func parseChooseFunctionJSON(raw string) (openAIToolCall, bool) {
+	var payload struct {
+		ChooseFunction struct {
+			FunctionName string `json:"functionName"`
+			Reason       string `json:"reason"`
+		} `json:"chooseFunction"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return openAIToolCall{}, false
+	}
+	functionName := strings.TrimSpace(payload.ChooseFunction.FunctionName)
+	if functionName == "" {
+		return openAIToolCall{}, false
+	}
+
+	args := map[string]any{
+		"functionName": functionName,
+	}
+	if reason := strings.TrimSpace(payload.ChooseFunction.Reason); reason != "" {
+		args["reason"] = reason
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return openAIToolCall{}, false
+	}
+
+	return openAIToolCall{
+		ID:   fmt.Sprintf("choose-function-%d", time.Now().UnixNano()),
+		Type: "function",
+		Function: openAIToolFunction{
+			Name:      routeIntentToolName,
+			Arguments: string(encoded),
+		},
+	}, true
+}
+
+func extractChooseFunctionCall(content string) (openAIToolCall, string, bool) {
+	blocks := findJSONBlocks(content)
+	for _, block := range blocks {
+		if call, ok := parseChooseFunctionJSON(content[block.start:block.end]); ok {
+			cleaned := removeJSONBlock(content, block.start, block.end)
+			return call, cleaned, true
+		}
+	}
+	return openAIToolCall{}, content, false
 }
 
 func removeJSONBlock(content string, start, end int) string {

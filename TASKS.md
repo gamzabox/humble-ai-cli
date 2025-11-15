@@ -169,3 +169,9 @@
 - [x] choose-tool 기반 시스템 프롬프트/흐름을 검증하는 테스트를 먼저 업데이트한다.
 - [x] choose-tool 스키마 제공 및 MCP 호출 흐름 구현을 완료한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Choose-Function System Prompt Update
+- [x] REQUIREMENTS.md 의 최신 system prompt/choose-function 요구사항을 검토하고 필요한 경우 문서를 업데이트한다.
+- [x] choose-function 및 functionCall schema 요구사항을 검증하도록 관련 테스트를 먼저 수정한다.
+- [x] system prompt와 choose-function 처리 로직을 업데이트해 요구사항을 만족시킨다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

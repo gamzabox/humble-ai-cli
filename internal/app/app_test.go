@@ -518,7 +518,7 @@ func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
 	}
 }
 
-func TestAppRespondsWithSchemaForChooseToolCall(t *testing.T) {
+func TestAppRespondsWithSchemaForChooseFunctionCall(t *testing.T) {
 	home := t.TempDir()
 	store := &stubStore{
 		cfg: config.Config{
@@ -532,9 +532,9 @@ func TestAppRespondsWithSchemaForChooseToolCall(t *testing.T) {
 	provider := &toolRequestProvider{
 		call: llm.ToolCall{
 			Server: "route-intent",
-			Method: "choose-tool",
+			Method: "choose-function",
 			Arguments: map[string]any{
-				"toolName": "calculator__add",
+				"functionName": "calculator__add",
 			},
 		},
 		onResponded: func(res llm.ToolResult) {
@@ -600,7 +600,7 @@ func TestAppRespondsWithSchemaForChooseToolCall(t *testing.T) {
 			t.Fatalf("expected schema content for calculator__add, got %q", res.Content)
 		}
 	default:
-		t.Fatalf("expected choose-tool result to be delivered")
+		t.Fatalf("expected choose-function result to be delivered")
 	}
 
 	if len(mcpExec.Calls()) != 0 {
@@ -608,7 +608,7 @@ func TestAppRespondsWithSchemaForChooseToolCall(t *testing.T) {
 	}
 }
 
-func TestAppChooseToolErrorWhenToolMissing(t *testing.T) {
+func TestAppChooseFunctionErrorWhenFunctionMissing(t *testing.T) {
 	home := t.TempDir()
 	store := &stubStore{
 		cfg: config.Config{
@@ -622,9 +622,9 @@ func TestAppChooseToolErrorWhenToolMissing(t *testing.T) {
 	provider := &toolRequestProvider{
 		call: llm.ToolCall{
 			Server: "route-intent",
-			Method: "choose-tool",
+			Method: "choose-function",
 			Arguments: map[string]any{
-				"toolName": "missing__tool",
+				"functionName": "missing__tool",
 			},
 		},
 		onResponded: func(res llm.ToolResult) {
@@ -672,7 +672,7 @@ func TestAppChooseToolErrorWhenToolMissing(t *testing.T) {
 			t.Fatalf("expected error content to mention missing tool, got %q", res.Content)
 		}
 	default:
-		t.Fatalf("expected choose-tool error result")
+		t.Fatalf("expected choose-function error result")
 	}
 }
 
@@ -1028,20 +1028,35 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	}
 
 	content := string(bytes.TrimSpace(data))
-	if !strings.Contains(content, "You are a **tool-enabled AI Agent**") {
-		t.Fatalf("expected default prompt to mention tool-enabled AI agent, got:\n%s", content)
+	if !strings.Contains(content, "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.") {
+		t.Fatalf("expected default prompt to mention humble AI agent guidance, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## **1) Core Rules**") {
-		t.Fatalf("expected default prompt to include core rules heading, got:\n%s", content)
+	if !strings.Contains(content, "# 1) Core Behavior Rules") {
+		t.Fatalf("expected default prompt to include core behavior rules heading, got:\n%s", content)
 	}
-	if !strings.Contains(content, "If a user request is determined to require a tool call") {
-		t.Fatalf("expected default prompt to include tool selection guidance, got:\n%s", content)
+	if !strings.Contains(content, "# 2) Function Selection Flow (choose-function MUST be used)") {
+		t.Fatalf("expected default prompt to describe choose-function flow, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## **6) Asking the User for Missing Information**") {
-		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
+	if !strings.Contains(content, "### Choose Function schema") {
+		t.Fatalf("expected default prompt to include choose function schema, got:\n%s", content)
 	}
-	if !strings.Contains(content, "Ask minimal questions required to move forward.") {
-		t.Fatalf("expected default prompt to end with minimal question guidance, got:\n%s", content)
+	if !strings.Contains(content, "## Function Call Schema and Example") {
+		t.Fatalf("expected default prompt to include function call schema guidance, got:\n%s", content)
+	}
+	if !strings.Contains(content, "# 6) Asking for Missing Information") {
+		t.Fatalf("expected default prompt to include missing information heading, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Ask minimal questions required to make the next legitimate function call.") {
+		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", content)
+	}
+	if !strings.Contains(content, "## MCP Server: context7") {
+		t.Fatalf("expected default prompt to include context7 server reference, got:\n%s", content)
+	}
+	if !strings.Contains(content, "- name: **context7__get-library-docs**") {
+		t.Fatalf("expected default prompt to describe context7__get-library-docs, got:\n%s", content)
+	}
+	if !strings.Contains(content, "- name: **context7__resolve-library-id**") {
+		t.Fatalf("expected default prompt to describe context7__resolve-library-id, got:\n%s", content)
 	}
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
