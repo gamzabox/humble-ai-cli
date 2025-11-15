@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gamzabox/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/tokenizer"
 )
 
 func testChooseFunctionDefinition() ToolDefinition {
@@ -53,7 +54,7 @@ func testNoToolPrompt() string {
 	return "# Connected Tools\n\n**NO FUNCTION CONNECTED**\n" + testFunctionCallSchemaBlock
 }
 
-const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
 
 func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
 	t.Parallel()
@@ -395,14 +396,14 @@ finished:
 	if !strings.Contains(string(firstBody), "functionCall") {
 		t.Fatalf("first request missing functionCall mention: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "server_name") {
-		t.Fatalf("first request missing server placeholder in function call schema: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "context7__resolve-library-id") {
+		t.Fatalf("first request missing target function example: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "reason why calling this tool") {
-		t.Fatalf("first request missing reason placeholder in function call schema: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "libraryName") {
+		t.Fatalf("first request missing argument example in function call schema: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "why this tool call is needed") {
-		t.Fatalf("first request missing reason example in function call instructions: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "Context7-compatible library ID for the Go language MCP SDK") {
+		t.Fatalf("first request missing reason guidance in function call schema: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected Tools") {
 		t.Fatalf("first request missing connected tools heading: %s", string(firstBody))
@@ -629,10 +630,13 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), "functionCall") {
 		t.Fatalf("functionCall mention missing in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "reason why calling this tool") {
-		t.Fatalf("function call schema missing reason placeholder in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "context7__resolve-library-id") {
+		t.Fatalf("function call schema missing target example in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "why this tool call is needed") {
+	if !strings.Contains(string(firstBody), "libraryName") {
+		t.Fatalf("function call example missing argument entry in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "Context7-compatible library ID for the Go language MCP SDK") {
 		t.Fatalf("function call example missing reason entry in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected Tools") {
@@ -1161,6 +1165,164 @@ finished:
 	}
 	if !hasToolPayload {
 		t.Fatalf("expected tool role payload in logs, entries=%v", entries)
+	}
+}
+
+func TestOpenAIProviderChunksToolResults(t *testing.T) {
+	t.Parallel()
+
+	chunker, err := tokenizer.NewChunker(32)
+	if err != nil {
+		t.Fatalf("NewChunker() error = %v", err)
+	}
+
+	provider := &openAIProvider{
+		chunker: chunker,
+	}
+
+	definitions := map[string]ToolDefinition{
+		"context7__get": {
+			Server:      "context7",
+			Method:      "get",
+			Description: "Get docs",
+			Name:        "context7__get",
+		},
+	}
+
+	call := toolCallRequest{
+		Call: openAIToolCall{
+			ID: "call_A",
+			Function: openAIToolFunction{
+				Name:      "context7__get",
+				Arguments: `{"query":"chunk"}`,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream := make(chan StreamChunk, 1)
+	done := make(chan []openAIMessage, 1)
+
+	go func() {
+		msgs, err := provider.awaitToolResult(ctx, stream, definitions, call)
+		if err != nil {
+			t.Errorf("awaitToolResult() error = %v", err)
+			close(done)
+			return
+		}
+		done <- msgs
+	}()
+
+	chunk := <-stream
+	if chunk.Type != ChunkToolCall || chunk.ToolCall == nil {
+		t.Fatalf("expected tool call chunk, got %#v", chunk)
+	}
+
+	longContent := strings.Repeat("chunked tool context requires splitting. ", 200)
+	if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: longContent}); err != nil {
+		t.Fatalf("Respond() error = %v", err)
+	}
+
+	msgs := <-done
+	if len(msgs) < 2 {
+		t.Fatalf("expected chunked tool messages, got %d", len(msgs))
+	}
+
+	var combined strings.Builder
+	for _, msg := range msgs {
+		if msg.Role != "tool" {
+			t.Fatalf("unexpected role %q", msg.Role)
+		}
+		if msg.ToolCallID != call.Call.ID {
+			t.Fatalf("unexpected tool call id %q", msg.ToolCallID)
+		}
+		combined.WriteString(msg.Content)
+	}
+
+	want := strings.TrimSpace(longContent)
+	if combined.String() != want {
+		t.Fatalf("combined content mismatch")
+	}
+}
+
+func TestOllamaProviderChunksToolResults(t *testing.T) {
+	t.Parallel()
+
+	chunker, err := tokenizer.NewChunker(32)
+	if err != nil {
+		t.Fatalf("NewChunker() error = %v", err)
+	}
+
+	provider := &ollamaProvider{
+		chunker: chunker,
+	}
+
+	definitions := map[string]ToolDefinition{
+		"context7__get": {
+			Server:      "context7",
+			Method:      "get",
+			Description: "Get docs",
+			Name:        "context7__get",
+		},
+	}
+
+	call := toolCallRequest{
+		Call: openAIToolCall{
+			ID: "call_B",
+			Function: openAIToolFunction{
+				Name:      "context7__get",
+				Arguments: `{"query":"chunk"}`,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream := make(chan StreamChunk, 1)
+	done := make(chan []ollamaMessage, 1)
+
+	go func() {
+		msgs, err := provider.awaitToolResult(ctx, stream, definitions, call)
+		if err != nil {
+			t.Errorf("awaitToolResult() error = %v", err)
+			close(done)
+			return
+		}
+		done <- msgs
+	}()
+
+	chunk := <-stream
+	if chunk.ToolCall == nil {
+		t.Fatalf("expected tool call chunk")
+	}
+
+	longContent := strings.Repeat("chunked ollama tool content requires splitting. ", 200)
+	if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: longContent}); err != nil {
+		t.Fatalf("Respond() error = %v", err)
+	}
+
+	msgs := <-done
+	if len(msgs) < 2 {
+		t.Fatalf("expected chunked messages, got %d", len(msgs))
+	}
+
+	var combined strings.Builder
+	for _, msg := range msgs {
+		if msg.Role != "tool" {
+			t.Fatalf("unexpected role %q", msg.Role)
+		}
+		if msg.ToolName != call.Call.Function.Name {
+			t.Fatalf("unexpected tool name %q", msg.ToolName)
+		}
+		combined.WriteString(msg.Content)
+	}
+
+	want := strings.TrimSpace(longContent)
+	if combined.String() != want {
+		t.Fatalf("combined content mismatch")
 	}
 }
 

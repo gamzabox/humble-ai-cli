@@ -1,6 +1,7 @@
 # Functional Requirements
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
+- 하나의 대화 Context 가 1500 token 을 초과할 경우 BPE 계열 tokenizer 로 token 수를 측정해 1500 token 단위로 순차 chunk 를 만들어 context 에 추가 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
 - Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 assistant prompt 로 context 에 직접 포함해 전달한다.
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.

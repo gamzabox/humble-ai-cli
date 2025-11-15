@@ -521,3 +521,9 @@ FUNCTIONS:
 - 수정된 system prompt 의 chooseFunction 및 functionCall Schema 를 코드에 적용 할 것
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Context 을 1500 token 단위로 chunking 하는 로직 추가
+- 하나의 Context 가 1500 token 을 초과 할 경우 1500 token 단위로 context 추가 할 것
+- BPE 계열의 tokenizer 를 사용해 token 을 측정 할 것
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

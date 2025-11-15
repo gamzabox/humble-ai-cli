@@ -5,6 +5,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 ## Features
 - Interactive REPL with streaming responses and “Thinking…” indicators.
 - Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
+- Automatically chunks context messages every 2,000 BPE tokens to avoid oversized prompts.
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
 - Supports configurable system prompts stored at `~/.humble-ai-cli/system_prompt.txt`.
 - Built-in slash commands:

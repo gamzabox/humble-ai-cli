@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkoukk/tiktoken-go"
+
 	"github.com/gamzabox/humble-ai-cli/internal/app"
 	"github.com/gamzabox/humble-ai-cli/internal/config"
 	"github.com/gamzabox/humble-ai-cli/internal/llm"
@@ -806,6 +808,95 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 }
 
+func TestAppChunksOverlongUserContext(t *testing.T) {
+	t.Parallel()
+
+	const chunkLimit = 1500
+
+	encoder, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load tokenizer: %v", err)
+	}
+
+	longUserInput := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
+	expectedUserInput := strings.TrimSpace(longUserInput)
+	if tokenCount := len(encoder.Encode(expectedUserInput, nil, nil)); tokenCount <= chunkLimit {
+		t.Fatalf("test input does not exceed chunk limit, got %d tokens", tokenCount)
+	}
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader(longUserInput + "\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected a single request, got %d", len(requests))
+	}
+
+	req := requests[0]
+	if len(req.Messages) < 3 {
+		t.Fatalf("expected assistant prompt plus chunked user messages, got %d messages", len(req.Messages))
+	}
+
+	var reconstructed strings.Builder
+	userChunks := 0
+	for _, msg := range req.Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		userChunks++
+		reconstructed.WriteString(msg.Content)
+		if tokenCount := len(encoder.Encode(msg.Content, nil, nil)); tokenCount > chunkLimit {
+			t.Fatalf("chunk exceeds token limit: %d", tokenCount)
+		}
+	}
+
+	if userChunks < 2 {
+		t.Fatalf("expected multiple user chunks, got %d", userChunks)
+	}
+
+	if reconstructed.String() != expectedUserInput {
+		idx := firstDifference(reconstructed.String(), expectedUserInput)
+		t.Fatalf("reconstructed content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(reconstructed.String()), len(expectedUserInput))
+	}
+}
+
 func TestAppNewCommandStartsFreshSession(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
@@ -1091,6 +1182,22 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !bytes.Equal(after, custom) {
 		t.Fatalf("expected prompt to remain unchanged on subsequent init")
 	}
+}
+
+func firstDifference(a, b string) int {
+	limit := len(a)
+	if len(b) < limit {
+		limit = len(b)
+	}
+	for i := 0; i < limit; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return limit
+	}
+	return -1
 }
 
 func TestAppHandlesMCPToolRequests(t *testing.T) {

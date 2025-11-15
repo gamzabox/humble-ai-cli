@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gamzabox/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/tokenizer"
 )
 
 // HTTPClient abstracts http.Client for testability.
@@ -50,19 +51,29 @@ func (f *Factory) Create(model config.Model) (ChatProvider, error) {
 		if base == "" {
 			base = "https://api.openai.com/v1"
 		}
+		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
+		if err != nil {
+			return nil, fmt.Errorf("initialize tokenizer: %w", err)
+		}
 		return &openAIProvider{
 			client:  f.client,
 			baseURL: strings.TrimRight(base, "/"),
 			apiKey:  model.APIKey,
+			chunker: chunker,
 		}, nil
 	case "ollama":
 		base := model.BaseURL
 		if base == "" {
 			base = "http://localhost:11434"
 		}
+		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
+		if err != nil {
+			return nil, fmt.Errorf("initialize tokenizer: %w", err)
+		}
 		return &ollamaProvider{
 			client:  f.client,
 			baseURL: strings.TrimRight(base, "/"),
+			chunker: chunker,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", model.Provider)
@@ -76,6 +87,7 @@ type openAIProvider struct {
 	client  HTTPClient
 	baseURL string
 	apiKey  string
+	chunker *tokenizer.Chunker
 }
 
 func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
@@ -104,14 +116,14 @@ func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 			}
 
 			for _, call := range result.toolCalls {
-				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
+				toolMessages, err := p.awaitToolResult(ctx, stream, definitions, call)
 				if err != nil {
 					if err != context.Canceled {
 						stream <- StreamChunk{Type: ChunkError, Err: err}
 					}
 					return
 				}
-				messages = append(messages, toolMessage)
+				messages = append(messages, toolMessages...)
 			}
 		}
 	}()
@@ -258,15 +270,15 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
 
-func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) (openAIMessage, error) {
+func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) ([]openAIMessage, error) {
 	definition, ok := defs[call.Call.Function.Name]
 	if !ok {
-		return openAIMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+		return nil, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
 	}
 
 	args, err := call.arguments()
 	if err != nil {
-		return openAIMessage{}, err
+		return nil, err
 	}
 
 	resultCh := make(chan ToolResult, 1)
@@ -290,7 +302,7 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 	var result ToolResult
 	select {
 	case <-ctx.Done():
-		return openAIMessage{}, ctx.Err()
+		return nil, ctx.Err()
 	case result = <-resultCh:
 	}
 
@@ -299,13 +311,28 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 		content = "{}"
 	}
 
-	toolMessage := openAIMessage{
-		Role:       "tool",
-		Content:    content,
-		ToolCallID: call.Call.ID,
-		Name:       definition.Name,
+	chunked := p.chunkToolContent(content)
+	messages := make([]openAIMessage, 0, len(chunked))
+	for _, part := range chunked {
+		messages = append(messages, openAIMessage{
+			Role:       "tool",
+			Content:    part,
+			ToolCallID: call.Call.ID,
+			Name:       definition.Name,
+		})
 	}
-	return toolMessage, nil
+	return messages, nil
+}
+
+func (p *openAIProvider) chunkToolContent(content string) []string {
+	if p == nil || p.chunker == nil {
+		return []string{content}
+	}
+	parts, err := p.chunker.ChunkText(content)
+	if err != nil || len(parts) == 0 {
+		return []string{content}
+	}
+	return parts
 }
 
 type openAIMessage struct {
@@ -508,6 +535,7 @@ func (r toolCallRequest) arguments() (map[string]any, error) {
 type ollamaProvider struct {
 	client  HTTPClient
 	baseURL string
+	chunker *tokenizer.Chunker
 }
 
 type ollamaMessage struct {
@@ -638,7 +666,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 			}
 
 			for _, call := range result.toolCalls {
-				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
+				toolMessages, err := p.awaitToolResult(ctx, stream, definitions, call)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return
@@ -646,7 +674,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 					stream <- StreamChunk{Type: ChunkError, Err: err}
 					return
 				}
-				messages = append(messages, toolMessage)
+				messages = append(messages, toolMessages...)
 			}
 		}
 	}()
@@ -809,15 +837,15 @@ func (p *ollamaProvider) awaitToolResult(
 	stream chan<- StreamChunk,
 	definitions map[string]ToolDefinition,
 	call toolCallRequest,
-) (ollamaMessage, error) {
+) ([]ollamaMessage, error) {
 	definition, ok := definitions[call.Call.Function.Name]
 	if !ok {
-		return ollamaMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+		return nil, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
 	}
 
 	args, err := call.arguments()
 	if err != nil {
-		return ollamaMessage{}, err
+		return nil, err
 	}
 
 	resultCh := make(chan ToolResult, 1)
@@ -841,7 +869,7 @@ func (p *ollamaProvider) awaitToolResult(
 	var result ToolResult
 	select {
 	case <-ctx.Done():
-		return ollamaMessage{}, ctx.Err()
+		return nil, ctx.Err()
 	case result = <-resultCh:
 	}
 
@@ -850,11 +878,27 @@ func (p *ollamaProvider) awaitToolResult(
 		content = "{}"
 	}
 
-	return ollamaMessage{
-		Role:     "tool",
-		Content:  content,
-		ToolName: call.Call.Function.Name,
-	}, nil
+	chunked := p.chunkToolContent(content)
+	messages := make([]ollamaMessage, 0, len(chunked))
+	for _, part := range chunked {
+		messages = append(messages, ollamaMessage{
+			Role:     "tool",
+			Content:  part,
+			ToolName: call.Call.Function.Name,
+		})
+	}
+	return messages, nil
+}
+
+func (p *ollamaProvider) chunkToolContent(content string) []string {
+	if p == nil || p.chunker == nil {
+		return []string{content}
+	}
+	parts, err := p.chunker.ChunkText(content)
+	if err != nil || len(parts) == 0 {
+		return []string{content}
+	}
+	return parts
 }
 
 func buildOllamaRequest(req ChatRequest) ([]byte, error) {

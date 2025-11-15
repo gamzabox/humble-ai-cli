@@ -175,3 +175,8 @@
 - [x] choose-function 및 functionCall schema 요구사항을 검증하도록 관련 테스트를 먼저 수정한다.
 - [x] system prompt와 choose-function 처리 로직을 업데이트해 요구사항을 만족시킨다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Context Chunking
+- [x] REQUIREMENTS.md 에 context chunking 요구사항을 반영한다.
+- [x] Context chunking 로직을 검증하는 테스트를 먼저 작성한다.
+- [x] Context chunking 구현을 완료하고 전체 테스트(`go test ./...`)를 통과시킨다.

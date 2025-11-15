@@ -82,12 +82,13 @@ type App struct {
 	homeDir     string
 	clock       Clock
 
-	systemPrompt string
-	logger       *logging.Logger
-	mcp          MCPExecutor
-	mcpServers   map[string]MCPServer
-	mcpFunctions map[string][]MCPFunction
-	mcpMu        sync.RWMutex
+	systemPrompt   string
+	logger         *logging.Logger
+	contextChunker *contextChunker
+	mcp            MCPExecutor
+	mcpServers     map[string]MCPServer
+	mcpFunctions   map[string][]MCPFunction
+	mcpMu          sync.RWMutex
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
@@ -188,21 +189,27 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("initialize logger: %w", err)
 	}
 
+	chunker, err := newContextChunker(contextChunkTokenLimit)
+	if err != nil {
+		return nil, fmt.Errorf("initialize context chunker: %w", err)
+	}
+
 	app := &App{
-		store:        opts.Store,
-		factory:      opts.Factory,
-		output:       opts.Output,
-		errOutput:    errOutput,
-		historyRoot:  historyRoot,
-		homeDir:      home,
-		clock:        clock,
-		systemPrompt: "",
-		logger:       logger,
-		mcp:          mcpExec,
-		mcpServers:   serverMap,
-		mcpFunctions: make(map[string][]MCPFunction),
-		cfg:          cfg,
-		mode:         modeInput,
+		store:          opts.Store,
+		factory:        opts.Factory,
+		output:         opts.Output,
+		errOutput:      errOutput,
+		historyRoot:    historyRoot,
+		homeDir:        home,
+		clock:          clock,
+		systemPrompt:   "",
+		logger:         logger,
+		contextChunker: chunker,
+		mcp:            mcpExec,
+		mcpServers:     serverMap,
+		mcpFunctions:   make(map[string][]MCPFunction),
+		cfg:            cfg,
+		mode:           modeInput,
 	}
 
 	app.lineReader = createLineReader(opts.Input, app.output, func() {
@@ -628,6 +635,15 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	}
 	requestMessages = append(requestMessages, history...)
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
+
+	if a.contextChunker != nil {
+		chunked, err := a.contextChunker.Chunk(requestMessages)
+		if err != nil {
+			a.logError("context chunking failed: %v", err)
+		} else {
+			requestMessages = chunked
+		}
+	}
 
 	req := llm.ChatRequest{
 		Model:        activeModel.Name,
@@ -1084,7 +1100,7 @@ func toolContextPrompt(defs []llm.ToolDefinition) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
 
 func (a *App) functionDescription(server, method string) string {
 	a.mcpMu.RLock()
