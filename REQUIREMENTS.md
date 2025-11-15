@@ -2,10 +2,12 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 System Prompt 에 직접 포함해 전달한다.
+- Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 assistant prompt 로 context 에 직접 포함해 전달한다.
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
-- MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `choose-function` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
+- MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
+- MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
+- 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
 
 ```
 # Connected Tools
@@ -18,12 +20,39 @@
 - function name: **context7__resolve-library-id**
 - description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
 
+
+# Function Call Schema and Example
+## Schema
+{
+  "functionCall": {
+    "server": "server_name",
+    "name": "tool name",
+    "arguments": {
+      "arg1 name": "argument1 value",
+      "arg2 name": "argument2 value",
+    },
+    "reason": "reason why calling this tool"
+  }
+}
+
+## Example
+{
+  "functionCall": {
+    "server": "good-server",
+    "name": "good-tool",
+    "arguments": {
+      "goodArg": "nice"
+    },
+    "reason": "why this tool call is needed"
+  }
+}
+
 ```
 
 - 다음은 default system prompt로 Humble AI CLI 실행시 system_prompt.txt 파일이 없을 경우 system_prompt.txt 파일을 생성 해 다음 내용을 정확히 포함해야 한다.
 ```
 You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.  
-A **tool** corresponds to a **function** exposed by MCP server.
+A **tool** corresponds to an MCP server, and a **function** is an action exposed by that tool.
 
 Your goal is to achieve the user’s intent **safely, accurately, and efficiently using available functions**.
 
@@ -52,79 +81,31 @@ Your goal is to achieve the user’s intent **safely, accurately, and efficientl
 
 ---
 
-# 2) Function Selection Flow (choose-function MUST be used)
-Before calling ANY MCP function:
-1. Call **choose-function** with:
+# 2) Function Selection Flow (chooseFunction MUST be used)
+Before calling EACH MCP function:
+1. Call **chooseFunction** with:
    - `functionName`: the selected function  
    - `reason`: why this function is necessary  
 2. Receive that function’s input schema.
 3. Create a function call using the schema and required properties.
-4. Wait for its response and incorporate results into the final answer.
+4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.
 
-### Choose Function schema
+## Choose Function Call Example
 {
   "chooseFunction": {
-    "functionName": "Name of the MCP function",
-    "reason": "Why this function is chosen"
-  }
-}
-
-### Example
-{
-  "chooseFunction": {
-    "functionName": "doAwesomeThing",
+    "functionName": "chooseFunction",
     "reason": "Need to perform the awesome action"
   }
 }
 
-### Input Schema Example
-{
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "thingName": {
-        "type": "string",
-        "description": "Name of one thing you want to do."
-      }
-    },
-    "required": [
-      "thingName"
-    ],
-    "additionalProperties": false,
-    "$schema": "http://json-schema.org/draft-07/schema#"
-  }
-}
+---
 
 # 3) Function Call Protocol
 - One message = one function call JSON only.
 - Do NOT combine multiple calls in the same message.
 - Review previous calls to avoid duplication.
 
-## Function Call Schema and Example
-### Schema
-{
-  "functionCall": {
-    "server": "server_name",
-    "name": "function name",
-    "arguments": {
-      "arg1 name": "argument1 value",
-      "arg2 name": "argument2 value",
-    },
-    "reason": "reason why calling this function"
-  }
-}
-
-### Example
-{
-  "functionCall": {
-    "server": "good-server",
-    "name": "good-function",
-    "arguments": {
-      "goodArg": "nice"
-    },
-    "reason": "why this function call is needed"
-  }
-}
+---
 
 # 4) Error Handling
 If a function response contains an error:
@@ -133,11 +114,15 @@ If a function response contains an error:
 3. Ask how they want to proceed
 Do not reveal internal logs or stack traces; keep it simple and relevant.
 
+---
+
 # 5) Handling Multiple Functions
 If multiple functions are used:
 - Validate and cross-check results when possible
 - Explain conflicts using natural-language only in the final answer
 - Do not mix any explanation into function call messages
+
+---
 
 # 6) Asking for Missing Information
 When user input is incomplete or ambiguous, ask for only what is strictly necessary to proceed.
@@ -148,6 +133,7 @@ Examples:
 Ask minimal questions required to make the next legitimate function call.
 
 ---
+
 ```
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.

@@ -42,17 +42,29 @@ func testChooseFunctionDefinition() ToolDefinition {
 }
 
 func testBasePrompt() string {
-	return "Base prompt.\n\n## Function Call Schema and Example\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}"
+	return "Base prompt."
 }
 
-func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
+func testToolPrompt(server, toolName, description string) string {
+	return fmt.Sprintf("# Connected Tools\n\n## MCP Server: %s\n\n- function name: **%s**\n- description: %s\n\n%s", server, toolName, description, testFunctionCallSchemaBlock)
+}
+
+func testNoToolPrompt() string {
+	return "# Connected Tools\n\n**NO FUNCTION CONNECTED**\n" + testFunctionCallSchemaBlock
+}
+
+const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+
+func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
 	t.Parallel()
 
+	toolPrompt := testToolPrompt("weather", "weather__get_weather", "Get the weather in a given city")
 	req := ChatRequest{
 		Model:        "llama3.2",
 		Stream:       true,
 		SystemPrompt: testBasePrompt(),
 		Messages: []Message{
+			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "what is the weather in tokyo?"},
 		},
 		Tools: []ToolDefinition{
@@ -90,8 +102,8 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 		t.Fatalf("expected tools field to be omitted, got %d entries", len(payload.Tools))
 	}
 
-	if len(payload.Messages) == 0 {
-		t.Fatalf("expected at least one message")
+	if len(payload.Messages) != len(req.Messages)+1 {
+		t.Fatalf("expected %d messages, got %d", len(req.Messages)+1, len(payload.Messages))
 	}
 
 	systemMsg := payload.Messages[0]
@@ -101,29 +113,21 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "Base prompt.") {
 		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
-		t.Fatalf("expected connected tools heading in system prompt, got %q", systemMsg.Content)
+	if strings.Contains(systemMsg.Content, "# Connected Tools") {
+		t.Fatalf("system prompt should not embed tool prompt, got %q", systemMsg.Content)
 	}
-	if strings.Contains(systemMsg.Content, "## Internal Tool: route-intent") {
-		t.Fatalf("internal route-intent block should no longer appear, got %q", systemMsg.Content)
+
+	assistantMsg := payload.Messages[1]
+	if assistantMsg.Role != "assistant" {
+		t.Fatalf("expected second message to be assistant, got %s", assistantMsg.Role)
 	}
-	if strings.Contains(systemMsg.Content, "- function name: **choose-function**") {
-		t.Fatalf("choose-function entry should be defined in the default system prompt only, got %q", systemMsg.Content)
+	if assistantMsg.Content != toolPrompt {
+		t.Fatalf("assistant prompt mismatch:\nwant: %q\ngot:  %q", toolPrompt, assistantMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "## MCP Server: weather") {
-		t.Fatalf("expected weather server details in system prompt, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, "- function name: **weather__get_weather**") {
-		t.Fatalf("expected tool description bullet in system prompt, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, "- description: Get the weather in a given city") {
-		t.Fatalf("expected tool description line in system prompt, got %q", systemMsg.Content)
-	}
-	if strings.Contains(systemMsg.Content, "\"city\":") {
-		t.Fatalf("MCP tool input schema should not be embedded, got %q", systemMsg.Content)
-	}
-	if strings.Contains(systemMsg.Content, "TOOL_CALL:") {
-		t.Fatalf("dynamic system prompt should no longer embed TOOL_CALL block, got %q", systemMsg.Content)
+
+	userMsg := payload.Messages[2]
+	if userMsg.Role != "user" || userMsg.Content != "what is the weather in tokyo?" {
+		t.Fatalf("expected user message preserved, got %#v", userMsg)
 	}
 
 	var root map[string]any
@@ -139,14 +143,16 @@ func TestBuildOllamaRequestEmbedsToolSchemaInSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildOllamaRequestWithoutToolsAddsNoToolConnectedMessage(t *testing.T) {
+func TestBuildOllamaRequestPreservesNoToolConnectedPrompt(t *testing.T) {
 	t.Parallel()
 
+	toolPrompt := testNoToolPrompt()
 	req := ChatRequest{
 		Model:        "llama3.2",
 		SystemPrompt: testBasePrompt(),
 		Stream:       true,
 		Messages: []Message{
+			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "hello?"},
 		},
 		Tools: []ToolDefinition{testChooseFunctionDefinition()},
@@ -162,25 +168,13 @@ func TestBuildOllamaRequestWithoutToolsAddsNoToolConnectedMessage(t *testing.T) 
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 
-	if len(payload.Messages) == 0 {
-		t.Fatalf("expected at least one message in payload")
+	if len(payload.Messages) != len(req.Messages)+1 {
+		t.Fatalf("expected %d messages, got %d", len(req.Messages)+1, len(payload.Messages))
 	}
 
-	systemMsg := payload.Messages[0]
-	if systemMsg.Role != "system" {
-		t.Fatalf("expected first message to have system role, got %s", systemMsg.Role)
-	}
-	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
-		t.Fatalf("expected connected tools heading in system prompt, got %q", systemMsg.Content)
-	}
-	if strings.Contains(systemMsg.Content, "## Internal Tool: route-intent") {
-		t.Fatalf("internal route-intent section should be omitted, got %q", systemMsg.Content)
-	}
-	if strings.Contains(systemMsg.Content, "- function name: **choose-function**") {
-		t.Fatalf("choose-function entry should not appear in the tool schema prompt, got %q", systemMsg.Content)
-	}
-	if !strings.Contains(systemMsg.Content, "**NO FUNCTION CONNECTED**") {
-		t.Fatalf("expected NO FUNCTION CONNECTED notice in system prompt, got %q", systemMsg.Content)
+	assistantMsg := payload.Messages[1]
+	if assistantMsg.Content != toolPrompt {
+		t.Fatalf("expected assistant prompt to remain unchanged, got %q", assistantMsg.Content)
 	}
 }
 
@@ -206,6 +200,52 @@ func TestParseManualToolCallHandlesChooseFunction(t *testing.T) {
 	}
 	if got := args["reason"]; got != "Need to resolve libraries" {
 		t.Fatalf("expected reason argument, got %v", got)
+	}
+}
+
+func TestParseManualToolCallHandlesFunctionCallObject(t *testing.T) {
+	payload := `Manual call request:
+{
+  "functionCall": {
+    "server": "context7",
+    "name": "context7__resolve-library-id",
+    "arguments": {
+      "libraryName": "create-react-app"
+    },
+    "reason": "To resolve the library ID"
+  }
+}`
+	calls, cleaned := parseManualToolCall(payload)
+	if len(calls) != 1 {
+		t.Fatalf("expected one parsed call, got %d", len(calls))
+	}
+	if strings.Contains(cleaned, "functionCall") {
+		t.Fatalf("expected functionCall block removed, got %q", cleaned)
+	}
+	call := calls[0]
+	if call.Function.Name != "context7__resolve-library-id" {
+		t.Fatalf("unexpected function name %q", call.Function.Name)
+	}
+	args, err := toolCallRequest{Call: call}.arguments()
+	if err != nil {
+		t.Fatalf("arguments error: %v", err)
+	}
+	if got := args["libraryName"]; got != "create-react-app" {
+		t.Fatalf("expected libraryName argument, got %v", got)
+	}
+}
+
+func TestFormatOllamaToolCallContentForChooseFunction(t *testing.T) {
+	call := openAIToolCall{
+		Function: openAIToolFunction{
+			Name:      routeIntentToolName,
+			Arguments: `{"functionName":"context7__resolve-library-id","reason":"Need schema"}`,
+		},
+	}
+	got := formatOllamaToolCallContent([]openAIToolCall{call}, nil)
+	want := `{"chooseFunction":{"functionName":"context7__resolve-library-id","reason":"Need schema"}}`
+	if got != want {
+		t.Fatalf("unexpected formatted content:\nwant: %s\n got: %s", want, got)
 	}
 }
 
@@ -259,11 +299,13 @@ func TestOllamaProviderStreamWithToolCalls(t *testing.T) {
 		t.Fatalf("create provider: %v", err)
 	}
 
+	toolPrompt := testToolPrompt("weather", "weather__get_weather", "Fetch the weather for a given city")
 	req := ChatRequest{
 		Model:        "llama3.2",
 		SystemPrompt: testBasePrompt(),
 		Stream:       true,
 		Messages: []Message{
+			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "Use tools if you can."},
 		},
 		Tools: []ToolDefinition{
@@ -347,7 +389,7 @@ finished:
 	if strings.Contains(string(firstBody), `"tools"`) {
 		t.Fatalf("first request should not send tools field: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "## Function Call Schema and Example") {
+	if !strings.Contains(string(firstBody), "# Function Call Schema and Example") {
 		t.Fatalf("first request missing function call schema guidance: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "functionCall") {
@@ -497,11 +539,13 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 		t.Fatalf("create provider: %v", err)
 	}
 
+	toolPrompt := testToolPrompt("context7", "context7__resolve-library-id", "Resolve Context7 library IDs")
 	req := ChatRequest{
 		Model:        "llama3.2",
 		SystemPrompt: testBasePrompt(),
 		Stream:       true,
 		Messages: []Message{
+			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "Please use available tools."},
 		},
 		Tools: []ToolDefinition{
@@ -579,7 +623,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if len(firstBody) == 0 {
 		t.Fatalf("expected first request body")
 	}
-	if !strings.Contains(string(firstBody), "## Function Call Schema and Example") {
+	if !strings.Contains(string(firstBody), "# Function Call Schema and Example") {
 		t.Fatalf("function call schema block missing in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "functionCall") {
@@ -891,7 +935,7 @@ func TestOpenAIProviderHandlesChooseFunctionJSON(t *testing.T) {
 		t.Fatalf("expected route-intent server, got %s", callChunk.ToolCall.Server)
 	}
 	if callChunk.ToolCall.Method != routeIntentToolName {
-		t.Fatalf("expected choose-function method, got %s", callChunk.ToolCall.Method)
+		t.Fatalf("expected chooseFunction method, got %s", callChunk.ToolCall.Method)
 	}
 	args := callChunk.ToolCall.Arguments
 	if args["functionName"] != "context7__resolve-library-id" {

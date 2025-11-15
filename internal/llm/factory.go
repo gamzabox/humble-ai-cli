@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -29,7 +28,7 @@ type Factory struct {
 const (
 	defaultTemperature    = 0.1
 	routeIntentServerName = "route-intent"
-	routeIntentToolName   = "choose-function"
+	routeIntentToolName   = "chooseFunction"
 )
 
 // NewFactory builds a Factory with optional custom HTTP client.
@@ -865,8 +864,7 @@ func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 
 func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
-	systemPrompt := enhanceSystemPromptWithToolSchema(req.SystemPrompt, req.Tools)
-	if strings.TrimSpace(systemPrompt) != "" {
+	if systemPrompt := strings.TrimSpace(req.SystemPrompt); systemPrompt != "" {
 		messages = append(messages, ollamaMessage{
 			Role:    "system",
 			Content: systemPrompt,
@@ -879,82 +877,6 @@ func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 		})
 	}
 	return messages
-}
-
-func enhanceSystemPromptWithToolSchema(prompt string, defs []ToolDefinition) string {
-	prompt = strings.TrimSpace(prompt)
-	schema := buildToolSchemaPrompt(defs)
-	if schema == "" {
-		return prompt
-	}
-	if prompt == "" {
-		return schema
-	}
-	return prompt + "\n\n" + schema
-}
-
-func buildToolSchemaPrompt(defs []ToolDefinition) string {
-	type toolEntry struct {
-		name        string
-		description string
-	}
-
-	var (
-		builder strings.Builder
-		groups  = make(map[string][]toolEntry)
-	)
-
-	builder.WriteString("# Connected Tools\n")
-
-	for _, def := range defs {
-		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
-			continue
-		}
-		server := strings.TrimSpace(def.Server)
-		if server == "" {
-			server = "default"
-		}
-		desc := strings.TrimSpace(def.Description)
-		if desc == "" {
-			desc = "No description provided."
-		}
-		groups[server] = append(groups[server], toolEntry{
-			name:        def.Name,
-			description: desc,
-		})
-	}
-
-	serverNames := make([]string, 0, len(groups))
-	for server := range groups {
-		serverNames = append(serverNames, server)
-	}
-	sort.Strings(serverNames)
-
-	if len(serverNames) == 0 {
-		builder.WriteString("\n**NO FUNCTION CONNECTED**")
-	} else {
-		for _, server := range serverNames {
-			builder.WriteString("\n## MCP Server: ")
-			builder.WriteString(server)
-			builder.WriteString("\n\n")
-
-			tools := groups[server]
-			sort.Slice(tools, func(i, j int) bool {
-				return tools[i].name < tools[j].name
-			})
-
-			for _, tool := range tools {
-				builder.WriteString("- function name: **")
-				builder.WriteString(tool.name)
-				builder.WriteString("**\n")
-				builder.WriteString("- description: ")
-				builder.WriteString(tool.description)
-				builder.WriteString("\n\n")
-			}
-		}
-	}
-
-	return strings.TrimRight(builder.String(), "\n")
 }
 
 func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]byte, error) {
@@ -1061,12 +983,33 @@ func findJSONBlocks(text string) []jsonBlock {
 
 func parseToolCallJSON(raw string) (openAIToolCall, bool) {
 	var payload struct {
-		Name      string          `json:"name"`
+		Name         string `json:"name"`
+		FunctionCall struct {
+			Server    string          `json:"server"`
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+			Reason    json.RawMessage `json:"reason"`
+		} `json:"functionCall"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return openAIToolCall{}, false
 	}
+
+	if name := strings.TrimSpace(payload.FunctionCall.Name); name != "" {
+		argText := strings.TrimSpace(string(payload.FunctionCall.Arguments))
+		if argText == "" || argText == "null" {
+			argText = "{}"
+		}
+		return openAIToolCall{
+			Type: "function",
+			Function: openAIToolFunction{
+				Name:      name,
+				Arguments: argText,
+			},
+		}, true
+	}
+
 	name := strings.TrimSpace(payload.Name)
 	if name == "" {
 		return openAIToolCall{}, false
@@ -1113,7 +1056,7 @@ func parseChooseFunctionJSON(raw string) (openAIToolCall, bool) {
 	}
 
 	return openAIToolCall{
-		ID:   fmt.Sprintf("choose-function-%d", time.Now().UnixNano()),
+		ID:   fmt.Sprintf("chooseFunction-%d", time.Now().UnixNano()),
 		Type: "function",
 		Function: openAIToolFunction{
 			Name:      routeIntentToolName,
@@ -1173,6 +1116,25 @@ func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]
 	payloads := make([]string, 0, len(calls))
 	for _, call := range calls {
 		name := strings.TrimSpace(call.Function.Name)
+		rawArgs := strings.TrimSpace(call.Function.Arguments)
+
+		if name == routeIntentToolName {
+			var args map[string]any
+			if rawArgs != "" {
+				_ = json.Unmarshal([]byte(rawArgs), &args)
+			}
+			if args == nil {
+				args = map[string]any{}
+			}
+			data := map[string]any{"chooseFunction": args}
+			encoded, err := json.Marshal(data)
+			if err != nil {
+				continue
+			}
+			payloads = append(payloads, string(encoded))
+			continue
+		}
+
 		data := map[string]any{
 			"server": "",
 			"name":   name,
@@ -1185,7 +1147,6 @@ func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]
 			}
 		}
 
-		rawArgs := strings.TrimSpace(call.Function.Arguments)
 		switch rawArgs {
 		case "":
 			data["arguments"] = map[string]any{}

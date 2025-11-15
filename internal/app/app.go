@@ -119,7 +119,7 @@ var errToolDeclined = errors.New("mcp call declined by user")
 
 const (
 	routeIntentServerName = "route-intent"
-	routeIntentToolName   = "choose-function"
+	routeIntentToolName   = "chooseFunction"
 )
 
 // New constructs an App from options.
@@ -332,84 +332,40 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"   - optional next steps  \n" +
 		"9. Keep final answers **clear and concise**.\n\n" +
 		"---\n\n" +
-		"# 2) Function Selection Flow (choose-function MUST be used)\n" +
-		"Before calling ANY MCP function:\n" +
-		"1. Call **choose-function** with:\n" +
+		"# 2) Function Selection Flow (chooseFunction MUST be used)\n" +
+		"Before calling EACH MCP function:\n" +
+		"1. Call **chooseFunction** with:\n" +
 		"   - `functionName`: the selected function  \n" +
 		"   - `reason`: why this function is necessary  \n" +
 		"2. Receive that function’s input schema.\n" +
 		"3. Create a function call using the schema and required properties.\n" +
-		"4. Wait for its response and incorporate results into the final answer.\n\n" +
-		"### Choose Function schema\n" +
+		"4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.\n\n" +
+		"## Choose Function Call Example\n" +
 		"{\n" +
 		"  \"chooseFunction\": {\n" +
-		"    \"functionName\": \"Name of the MCP function\",\n" +
-		"    \"reason\": \"Why this function is chosen\"\n" +
-		"  }\n" +
-		"}\n\n" +
-		"### Example\n" +
-		"{\n" +
-		"  \"chooseFunction\": {\n" +
-		"    \"functionName\": \"doAwesomeThing\",\n" +
+		"    \"functionName\": \"chooseFunction\",\n" +
 		"    \"reason\": \"Need to perform the awesome action\"\n" +
 		"  }\n" +
 		"}\n\n" +
-		"### Input Schema Example\n" +
-		"{\n" +
-		"  \"inputSchema\": {\n" +
-		"    \"type\": \"object\",\n" +
-		"    \"properties\": {\n" +
-		"      \"thingName\": {\n" +
-		"        \"type\": \"string\",\n" +
-		"        \"description\": \"Name of one thing you want to do.\"\n" +
-		"      }\n" +
-		"    },\n" +
-		"    \"required\": [\n" +
-		"      \"thingName\"\n" +
-		"    ],\n" +
-		"    \"additionalProperties\": false,\n" +
-		"    \"$schema\": \"http://json-schema.org/draft-07/schema#\"\n" +
-		"  }\n" +
-		"}\n\n" +
+		"---\n\n" +
 		"# 3) Function Call Protocol\n" +
 		"- One message = one function call JSON only.\n" +
 		"- Do NOT combine multiple calls in the same message.\n" +
 		"- Review previous calls to avoid duplication.\n\n" +
-		"## Function Call Schema and Example\n" +
-		"### Schema\n" +
-		"{\n" +
-		"  \"functionCall\": {\n" +
-		"    \"server\": \"server_name\",\n" +
-		"    \"name\": \"tool name\",\n" +
-		"    \"arguments\": {\n" +
-		"      \"arg1 name\": \"argument1 value\",\n" +
-		"      \"arg2 name\": \"argument2 value\",\n" +
-		"    },\n" +
-		"    \"reason\": \"reason why calling this tool\"\n" +
-		"  }\n" +
-		"}\n\n" +
-		"### Example\n" +
-		"{\n" +
-		"  \"functionCall\": {\n" +
-		"    \"server\": \"good-server\",\n" +
-		"    \"name\": \"good-tool\",\n" +
-		"    \"arguments\": {\n" +
-		"      \"goodArg\": \"nice\"\n" +
-		"    },\n" +
-		"    \"reason\": \"why this tool call is needed\"\n" +
-		"  }\n" +
-		"}\n\n" +
+		"---\n\n" +
 		"# 4) Error Handling\n" +
 		"If a function response contains an error:\n" +
 		"1. Stop all further function calls\n" +
 		"2. Provide a short and user-friendly summary\n" +
 		"3. Ask how they want to proceed\n" +
 		"Do not reveal internal logs or stack traces; keep it simple and relevant.\n\n" +
+		"---\n\n" +
 		"# 5) Handling Multiple Functions\n" +
 		"If multiple functions are used:\n" +
 		"- Validate and cross-check results when possible\n" +
 		"- Explain conflicts using natural-language only in the final answer\n" +
 		"- Do not mix any explanation into function call messages\n\n" +
+		"---\n\n" +
 		"# 6) Asking for Missing Information\n" +
 		"When user input is incomplete or ambiguous, ask for only what is strictly necessary to proceed.\n" +
 		"Examples:\n" +
@@ -417,13 +373,7 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"- “Do you have login credentials?”\n" +
 		"- “Which selector should I extract data from?”\n" +
 		"Ask minimal questions required to make the next legitimate function call.\n\n" +
-		"---\n\n" +
-		"# Connected Tools\n\n" +
-		"## MCP Server: context7\n\n" +
-		"- name: **context7__get-library-docs**\n" +
-		"- description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.\n\n" +
-		"- name: **context7__resolve-library-id**\n" +
-		"- description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.\n\n"
+		"---\n"
 }
 
 func (a *App) setupSignals(ch chan os.Signal) {
@@ -670,7 +620,13 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		return fmt.Errorf("create provider: %w", err)
 	}
 
-	requestMessages := append([]llm.Message{}, a.messages...)
+	toolDefs := a.availableToolDefinitions()
+	history := append([]llm.Message{}, a.messages...)
+	requestMessages := make([]llm.Message, 0, len(history)+2)
+	if contextPrompt := toolContextPrompt(toolDefs); strings.TrimSpace(contextPrompt) != "" {
+		requestMessages = append(requestMessages, llm.Message{Role: "assistant", Content: contextPrompt})
+	}
+	requestMessages = append(requestMessages, history...)
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
 
 	req := llm.ChatRequest{
@@ -678,7 +634,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		Messages:     requestMessages,
 		SystemPrompt: a.systemPrompt,
 		Stream:       true,
-		Tools:        a.availableToolDefinitions(),
+		Tools:        toolDefs,
 	}
 	if data, err := json.Marshal(req); err == nil {
 		a.logDebug("LLM request: %s", string(data))
@@ -1066,6 +1022,70 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 	return defs
 }
 
+func toolContextPrompt(defs []llm.ToolDefinition) string {
+	type toolEntry struct {
+		name        string
+		description string
+	}
+
+	builder := strings.Builder{}
+	builder.WriteString("# Connected Tools\n\n")
+
+	groups := make(map[string][]toolEntry)
+	for _, def := range defs {
+		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
+			continue
+		}
+		server := strings.TrimSpace(def.Server)
+		if server == "" {
+			server = "default"
+		}
+		desc := strings.TrimSpace(def.Description)
+		if desc == "" {
+			desc = "No description provided."
+		}
+		groups[server] = append(groups[server], toolEntry{
+			name:        def.Name,
+			description: desc,
+		})
+	}
+
+	if len(groups) == 0 {
+		builder.WriteString("**NO FUNCTION CONNECTED**\n")
+	} else {
+		serverNames := make([]string, 0, len(groups))
+		for server := range groups {
+			serverNames = append(serverNames, server)
+		}
+		sort.Strings(serverNames)
+
+		for _, server := range serverNames {
+			builder.WriteString("## MCP Server: ")
+			builder.WriteString(server)
+			builder.WriteString("\n\n")
+
+			entries := groups[server]
+			sort.Slice(entries, func(i, j int) bool {
+				return entries[i].name < entries[j].name
+			})
+
+			for _, entry := range entries {
+				builder.WriteString("- function name: **")
+				builder.WriteString(entry.name)
+				builder.WriteString("**\n")
+				builder.WriteString("- description: ")
+				builder.WriteString(entry.description)
+				builder.WriteString("\n\n")
+			}
+		}
+	}
+
+	builder.WriteString(functionCallSchemaPrompt)
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+
 func (a *App) functionDescription(server, method string) string {
 	a.mcpMu.RLock()
 	defer a.mcpMu.RUnlock()
@@ -1247,18 +1267,23 @@ func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) 
 		schema = defaultToolParameters()
 	}
 
-	data, err := json.MarshalIndent(schema, "", "  ")
+	payload := map[string]any{
+		"functionName": functionName,
+		"inputSchema":  schema,
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return a.respondChooseFunctionError(ctx, call, fmt.Sprintf("failed to encode schema: %v", err))
 	}
 
 	if call.Respond != nil {
 		if err := call.Respond(ctx, llm.ToolResult{Content: string(data)}); err != nil && !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("deliver choose-function schema: %w", err)
+			return fmt.Errorf("deliver chooseFunction schema: %w", err)
 		}
 	}
 
-	a.logDebug("choose-function schema provided for %s", functionName)
+	a.logDebug("chooseFunction schema provided for %s", functionName)
 	fmt.Fprintf(a.output, "Provided schema for function %q.\n", functionName)
 	return nil
 }
@@ -1267,8 +1292,8 @@ func (a *App) respondChooseFunctionError(ctx context.Context, call *llm.ToolCall
 	if call != nil && call.Respond != nil {
 		_ = call.Respond(ctx, llm.ToolResult{Content: message, IsError: true})
 	}
-	fmt.Fprintf(a.errOutput, "choose-function error: %s\n", message)
-	a.logError("choose-function error: %s", message)
+	fmt.Fprintf(a.errOutput, "chooseFunction error: %s\n", message)
+	a.logError("chooseFunction error: %s", message)
 	return nil
 }
 
