@@ -734,7 +734,7 @@ func (p *ollamaProvider) streamOnce(
 	decoder := json.NewDecoder(resp.Body)
 	var (
 		builder   strings.Builder
-		toolCalls []openAIToolCall
+		toolCalls []parsedToolCall
 		assistant = ollamaMessage{Role: "assistant"}
 	)
 
@@ -776,7 +776,7 @@ func (p *ollamaProvider) streamOnce(
 		if len(chunk.Message.ToolCalls) > 0 {
 			for _, raw := range chunk.Message.ToolCalls {
 				call := raw.toOpenAIToolCall()
-				toolCalls = append(toolCalls, call)
+				toolCalls = append(toolCalls, parsedToolCall{call: call})
 			}
 		}
 
@@ -822,7 +822,7 @@ func (p *ollamaProvider) streamOnce(
 
 	requests := make([]toolCallRequest, 0, len(toolCalls))
 	for _, call := range toolCalls {
-		requests = append(requests, toolCallRequest{Call: call})
+		requests = append(requests, toolCallRequest{Call: call.call})
 	}
 	logResponse(len(toolCalls))
 
@@ -935,9 +935,14 @@ func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]
 	return json.Marshal(payload)
 }
 
-func parseManualToolCall(content string) ([]openAIToolCall, string) {
+type parsedToolCall struct {
+	call openAIToolCall
+	raw  string
+}
+
+func parseManualToolCall(content string) ([]parsedToolCall, string) {
 	cleaned := content
-	var calls []openAIToolCall
+	var calls []parsedToolCall
 
 	for {
 		blocks := findJSONBlocks(cleaned)
@@ -949,13 +954,13 @@ func parseManualToolCall(content string) ([]openAIToolCall, string) {
 		for _, block := range blocks {
 			segment := cleaned[block.start:block.end]
 			if call, ok := parseChooseFunctionJSON(segment); ok {
-				calls = append(calls, call)
+				calls = append(calls, parsedToolCall{call: call, raw: segment})
 				cleaned = removeJSONBlock(cleaned, block.start, block.end)
 				parsed = true
 				break
 			}
 			if call, ok := parseToolCallJSON(segment); ok {
-				calls = append(calls, call)
+				calls = append(calls, parsedToolCall{call: call, raw: segment})
 				cleaned = removeJSONBlock(cleaned, block.start, block.end)
 				parsed = true
 				break
@@ -1152,13 +1157,19 @@ func trimLeadingFence(s string) string {
 	return s
 }
 
-func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]ToolDefinition) string {
+func formatOllamaToolCallContent(calls []parsedToolCall, definitions map[string]ToolDefinition) string {
 	if len(calls) == 0 {
 		return ""
 	}
 
 	payloads := make([]string, 0, len(calls))
-	for _, call := range calls {
+	for _, parsed := range calls {
+		if raw := strings.TrimSpace(parsed.raw); raw != "" {
+			payloads = append(payloads, parsed.raw)
+			continue
+		}
+
+		call := parsed.call
 		name := strings.TrimSpace(call.Function.Name)
 		rawArgs := strings.TrimSpace(call.Function.Arguments)
 

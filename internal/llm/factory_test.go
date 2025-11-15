@@ -188,7 +188,7 @@ func TestParseManualToolCallHandlesChooseFunction(t *testing.T) {
 	if strings.Contains(cleaned, "chooseFunction") {
 		t.Fatalf("expected chooseFunction block removed, got %q", cleaned)
 	}
-	call := calls[0]
+	call := calls[0].call
 	if call.Function.Name != routeIntentToolName {
 		t.Fatalf("unexpected function name %q", call.Function.Name)
 	}
@@ -223,7 +223,7 @@ func TestParseManualToolCallHandlesFunctionCallObject(t *testing.T) {
 	if strings.Contains(cleaned, "functionCall") {
 		t.Fatalf("expected functionCall block removed, got %q", cleaned)
 	}
-	call := calls[0]
+	call := calls[0].call
 	if call.Function.Name != "context7__resolve-library-id" {
 		t.Fatalf("unexpected function name %q", call.Function.Name)
 	}
@@ -237,13 +237,15 @@ func TestParseManualToolCallHandlesFunctionCallObject(t *testing.T) {
 }
 
 func TestFormatOllamaToolCallContentForChooseFunction(t *testing.T) {
-	call := openAIToolCall{
-		Function: openAIToolFunction{
-			Name:      routeIntentToolName,
-			Arguments: `{"functionName":"context7__resolve-library-id","reason":"Need schema"}`,
+	call := parsedToolCall{
+		call: openAIToolCall{
+			Function: openAIToolFunction{
+				Name:      routeIntentToolName,
+				Arguments: `{"functionName":"context7__resolve-library-id","reason":"Need schema"}`,
+			},
 		},
 	}
-	got := formatOllamaToolCallContent([]openAIToolCall{call}, nil)
+	got := formatOllamaToolCallContent([]parsedToolCall{call}, nil)
 	want := `{"chooseFunction":{"functionName":"context7__resolve-library-id","reason":"Need schema"}}`
 	if got != want {
 		t.Fatalf("unexpected formatted content:\nwant: %s\n got: %s", want, got)
@@ -656,6 +658,139 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	}
 	if !foundTool {
 		t.Fatalf("expected tool role message in second pass payload: %+v", secondPayload.Messages)
+	}
+}
+
+func TestOllamaProviderPreservesManualFunctionCallJSON(t *testing.T) {
+	t.Parallel()
+
+	manualJSON := "{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}"
+
+	var (
+		requestCount int
+		secondBody   []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		defer r.Body.Close()
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+
+		requestCount++
+		switch requestCount {
+		case 1:
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, fmt.Sprintf(`{"message":{"role":"assistant","content":%q}, "done": false}`+"\n", manualJSON))
+			io.WriteString(w, `{"message":{"role":"assistant","content":""}, "done": true}`+"\n")
+		case 2:
+			secondBody = body
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"message":{"role":"assistant","content":"Done."}, "done": false}`+"\n")
+			io.WriteString(w, `{"message":{"role":"assistant","content":""}, "done": true}`+"\n")
+		default:
+			t.Fatalf("unexpected request number %d", requestCount)
+		}
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "llama3.2",
+		Provider: "ollama",
+		BaseURL:  server.URL,
+	}
+	provider, err := factory.Create(model)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	req := ChatRequest{
+		Model:        model.Name,
+		SystemPrompt: testBasePrompt(),
+		Stream:       true,
+		Messages: []Message{
+			{Role: "assistant", Content: testToolPrompt("context7", "context7__resolve-library-id", "Resolve IDs")},
+			{Role: "user", Content: "Use a tool."},
+		},
+		Tools: []ToolDefinition{
+			{
+				Name:        "context7__resolve-library-id",
+				Description: "Resolve Context7 IDs",
+				Server:      "context7",
+				Method:      "resolve-library-id",
+				Parameters: map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"libraryName": map[string]any{"type": "string"}},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, req)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expect := func() StreamChunk {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	for {
+		chunk := expect()
+		if chunk.Type == ChunkToolCall {
+			if chunk.ToolCall == nil {
+				t.Fatalf("tool call missing payload")
+			}
+			if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: "{}"}); err != nil {
+				t.Fatalf("respond tool call: %v", err)
+			}
+			break
+		}
+	}
+
+	for {
+		chunk := expect()
+		if chunk.Type == ChunkDone {
+			break
+		}
+	}
+
+	if len(secondBody) == 0 {
+		t.Fatalf("expected follow-up request body")
+	}
+
+	var payload ollamaRequestPayload
+	if err := json.Unmarshal(secondBody, &payload); err != nil {
+		t.Fatalf("unmarshal second request: %v", err)
+	}
+
+	found := false
+	for _, msg := range payload.Messages {
+		if msg.Role == "assistant" && msg.Content == manualJSON {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected assistant message to preserve manual JSON, payload=%+v", payload.Messages)
 	}
 }
 
