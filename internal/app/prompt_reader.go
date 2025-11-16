@@ -90,7 +90,13 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 				r.onInterrupt()
 			}
 			_, _ = fmt.Fprint(r.output, "^C\r\n")
-			return "", io.EOF
+			buffer = newLineBuffer()
+			if prompt != "" {
+				if _, err := fmt.Fprint(r.output, prompt); err != nil {
+					return "", err
+				}
+			}
+			continue
 		case 0x04: // Ctrl+D
 			if len(buffer.runes) == 0 {
 				_, _ = fmt.Fprint(r.output, "\r\n")

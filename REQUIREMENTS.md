@@ -146,7 +146,8 @@ Ask minimal questions required to make the next legitimate function call.
 - 질문을 입력하면 우선 "Waiting for response..." 를 출력한다.
 - LLM 으로부터 thinking 메시지를 수신하면 `<<< Thinking >>>` 줄을 출력한 뒤 thinking 내용을 스트리밍으로 표시하고, 종료 시 `<<< End Thinking >>>` 줄을 출력한다.
 - LLM 의 답변을 기다리거나 출력 중에 CTRL+C 를 누르면 다시 입력 모드로 돌아 간다.
-- 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료 한다.
+- 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료하지 않고 `Press CTRL+D to exit the program.` 안내 메시지를 출력한 뒤 입력을 계속 기다린다.
+- 입력 대기 상태에서 CTRL+D 를 누르면 프로그램을 종료한다.
 - 프롬프트 입력 시 좌우 방향키, Home, End 키로 커서를 이동할 수 있어야 하며, 한국어/중국어/일본어 등 다국어 입력에서도 정상 동작해야 한다.
 
 ## Config
@@ -180,7 +181,7 @@ Ask minimal questions required to make the next legitimate function call.
     - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 tool 이름과 description 을 출력한다.
     - /toggle-mcp: mcp-servers.json 에 등록된 MCP 서버 리스트를 번호와 함께 출력하고 현재 enabled 상태를 표시한다. 번호를 선택하면 해당 서버의 enabled 값을 반전하여 파일에 저장하고, 0을 입력하면 취소한다. 설정이 변경되면 CLI 는 즉시 갱신된 enabled 상태를 반영한다.
     - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
-    - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
+    - /exit: 프로그램을 종료한다. (입력 모드에서 CTRL+D 를 누르는 것과 동일하게 종료된다.)
 
 ## Logging
 - $HOME/.humble-ai-cli/logs 디렉토리에 날짜별 로그파일(application-hac-%d{yyyy-MM-dd}.log) 을 생성하고 기록한다.

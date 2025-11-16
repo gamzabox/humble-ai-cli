@@ -180,3 +180,9 @@
 - [x] REQUIREMENTS.md 에 context chunking 요구사항을 반영한다.
 - [x] Context chunking 로직을 검증하는 테스트를 먼저 작성한다.
 - [x] Context chunking 구현을 완료하고 전체 테스트(`go test ./...`)를 통과시킨다.
+
+# CTRL+D 종료 안내
+- [x] REQUIREMENTS.md/README.md 에 CTRL+D 종료 및 CTRL+C 가이드 요구사항을 반영한다.
+- [x] CTRL+D 종료 및 CTRL+C 가이드 동작을 검증하는 테스트를 먼저 작성한다.
+- [x] 입력 처리 및 인터럽트 로직을 수정해 요구사항을 만족시킨다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

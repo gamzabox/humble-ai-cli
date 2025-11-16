@@ -15,7 +15,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
   - `/mcp` – display enabled MCP servers and the tools they expose.
   - `/toggle-mcp` – enable or disable MCP servers defined in `mcp-servers.json`.
-  - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
+  - `/exit` – quit the program; pressing `Ctrl+D` on an empty prompt exits as well, while `Ctrl+C` now only cancels an in-progress response.
 
 ## Prerequisites
 - Go 1.25.2 (or a Go toolchain that supports a compatible `go` version).  

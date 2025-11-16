@@ -121,6 +121,7 @@ var errToolDeclined = errors.New("mcp call declined by user")
 const (
 	routeIntentServerName = "route-intent"
 	routeIntentToolName   = "chooseFunction"
+	ctrlDExitGuide        = "Press CTRL+D to exit the program."
 )
 
 // New constructs an App from options.
@@ -1358,16 +1359,25 @@ func (a *App) leaveResponding() {
 
 func (a *App) handleInterrupt() {
 	a.modeMu.Lock()
-	defer a.modeMu.Unlock()
+	mode := a.mode
+	cancel := a.cancelCurrent
+	a.modeMu.Unlock()
 
-	switch a.mode {
+	switch mode {
 	case modeResponding:
-		if a.cancelCurrent != nil {
-			a.cancelCurrent()
+		if cancel != nil {
+			cancel()
 		}
 	case modeInput:
-		a.exitRequested = true
+		a.printCtrlDExitGuide()
 	}
+}
+
+func (a *App) printCtrlDExitGuide() {
+	if a.output == nil {
+		return
+	}
+	fmt.Fprintf(a.output, "\r\n%s\r\n", ctrlDExitGuide)
 }
 
 func (a *App) shouldExit() bool {
