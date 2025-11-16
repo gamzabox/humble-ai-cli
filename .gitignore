@@ -19,6 +19,7 @@ myapp.exe
 /bin/ 
 /pkg/
 /target/
+/dist/
 
 # 의존성 (Dependencies)
 # Go 모듈 캐시 파일

@@ -69,6 +69,8 @@ type Options struct {
 	Clock          Clock
 	Interrupts     chan os.Signal
 	MCP            MCPExecutor
+	Version        string
+	BuildDate      string
 }
 
 // App coordinates CLI behaviour.
@@ -81,6 +83,8 @@ type App struct {
 	historyRoot string
 	homeDir     string
 	clock       Clock
+	version     string
+	buildDate   string
 
 	systemPrompt   string
 	logger         *logging.Logger
@@ -212,6 +216,8 @@ func New(opts Options) (*App, error) {
 		historyRoot:    historyRoot,
 		homeDir:        home,
 		clock:          clock,
+		version:        opts.Version,
+		buildDate:      opts.BuildDate,
 		systemPrompt:   "",
 		logger:         logger,
 		contextChunker: chunker,

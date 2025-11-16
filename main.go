@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/gamzabox/humble-ai-cli/internal/app"
+	"github.com/gamzabox/humble-ai-cli/internal/buildinfo"
 	"github.com/gamzabox/humble-ai-cli/internal/config"
 	"github.com/gamzabox/humble-ai-cli/internal/llm"
 )
@@ -29,6 +30,8 @@ func main() {
 		ErrorOutput:    os.Stderr,
 		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
 		HomeDir:        home,
+		Version:        buildinfo.Version,
+		BuildDate:      buildinfo.Date,
 	}
 
 	instance, err := app.New(options)

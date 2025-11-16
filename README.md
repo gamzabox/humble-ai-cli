@@ -120,10 +120,15 @@ go test ./...
 ```
 
 ## Building
-Produce a standalone binary:
+Use the provided build script to generate platform-specific binaries with embedded version metadata:
 
 ```bash
-go build -o humble-ai-cli ./...
+./build.sh
 ```
 
-The resulting binary can be placed anywhere on your `PATH`. When run, it will continue to use the configuration files under `~/.humble-ai-cli`.
+The script derives the version from the latest git tag (fallback `dev`), injects both the version and the build timestamp via `-ldflags`, and outputs the following artifacts under `dist/`:
+- `humble-ai-cli` (linux/amd64)
+- `humble-ai-cli_amd64.exe` (windows/amd64)
+- `humble-ai-cli_arm64.exe` (windows/arm64)
+
+If you only need a quick local build for your current platform, you can still run `go build -o humble-ai-cli ./...`, but version/date values will remain at their default (`dev`, `unknown`).

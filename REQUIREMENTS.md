@@ -10,6 +10,14 @@
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
 - 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
 
+## Build & Release
+- `build.sh` 스크립트를 제공해 cross-platform 빌드를 수행한다.
+- 스크립트는 `git describe --tags --abbrev=0` 결과를 version 값으로 사용하고, 태그가 없을 경우 `dev` 를 사용한다.
+- build 시 ldflags `-X` 옵션으로 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Version` 과 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Date` 값을 각각 최신 git tag, UTC 빌드 시간(ISO8601/RFC3339 형식)으로 주입한다.
+- `internal/buildinfo` 의 version 기본값은 `dev`, date 기본값은 `unknown` 이어야 한다.
+- 빌드 타겟은 `linux/amd64`, `windows/amd64`, `windows/arm64` 이며 출력 파일명은 각각 `humble-ai-cli`, `humble-ai-cli_amd64.exe`, `humble-ai-cli_arm64.exe` 여야 한다.
+- 생성된 바이너리는 `dist/` 디렉터리에 저장한다.
+
 ```
 # Connected Tools
 

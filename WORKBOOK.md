@@ -547,3 +547,24 @@ FUNCTIONS:
 - env 의 값들은 key value 로 해당 mcp server 실행시 환경 변수로 적용 되어야 함
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# git tag 와 ldflags 를 이용한 버전 삽입 및 build.sh 스크립트 구현
+- go build -ldflags 를 이용해 최근 git tag (예: v1.0.0) 를 version 변수에, 빌드시간을 date 변수에 삽입하여 build 수행
+- version 의 default 값은 dev, date 의 기본 값은 unknown 으로 설정
+- 이렇게 build 를 수행하는 build.sh 스크립트 구현
+- build 타겟은 windows(amd64, arm64), 와 linux
+  - output file명은 linux: humble-ai-cli, windows amd64: humble-ai-cli_amd64.exe, windows arm64: humble-ai-cli_arm64.exe
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# 실행시 간단 가이드 출력
+- 다음과 같이 출력
+- version 은 코드상에 저장된 version 변수에서 읽어서 출력
+```
+Humble AI CLI v1.0.0
+- Use /help for detailed commands.
+- Press CTRL+C to stop, CTRL+D to exit.
+```
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

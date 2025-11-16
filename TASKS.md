@@ -196,3 +196,9 @@
 - [x] 상/하 방향키 입력 히스토리 네비게이션 요구사항을 테스트로 정의한다.
 - [x] 프롬프트 입력 히스토리 네비게이션 기능을 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Versioned Build Script
+- [x] build metadata 요구사항을 REQUIREMENTS.md 와 README.md 에 반영한다.
+- [x] version/date 기본값을 검증하는 테스트를 먼저 작성한다.
+- [x] build metadata 로직과 build.sh 스크립트를 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
