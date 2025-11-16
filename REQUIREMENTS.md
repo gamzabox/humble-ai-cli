@@ -112,6 +112,7 @@ Before calling EACH MCP function:
 # 3) Function Call Protocol
 - One message = one function call JSON only.
 - Do NOT combine multiple calls in the same message.
+- Hyphen `-` and underscore `_` are different characters. NEVER interchange them.
 - Review previous calls to avoid duplication.
 
 ---
