@@ -92,7 +92,7 @@ func TestHandleWindowsControlKeyRecognizesEditKeys(t *testing.T) {
 			}
 
 			reader := bytes.NewBuffer([]byte{tt.seq})
-			handled, changed, err := handleWindowsControlKey(tt.prefix, reader, buf)
+			handled, changed, err := handleWindowsControlKey(tt.prefix, reader, buf, nil, nil)
 			if err != nil {
 				t.Fatalf("handleWindowsControlKey returned error: %v", err)
 			}
@@ -118,7 +118,7 @@ func TestHandleWindowsControlKeyIgnoresUnknownPrefix(t *testing.T) {
 		buf.Insert(r)
 	}
 
-	handled, changed, err := handleWindowsControlKey(0x1b, bytes.NewBuffer(nil), buf)
+	handled, changed, err := handleWindowsControlKey(0x1b, bytes.NewBuffer(nil), buf, nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -130,5 +130,55 @@ func TestHandleWindowsControlKeyIgnoresUnknownPrefix(t *testing.T) {
 	}
 	if got := buf.String(); got != "abc" {
 		t.Fatalf("expected buffer unchanged, got %q", got)
+	}
+}
+
+func TestHandleWindowsControlKeyHandlesHistory(t *testing.T) {
+	buf := newLineBuffer()
+	for _, r := range "abc" {
+		buf.Insert(r)
+	}
+
+	reader := bytes.NewBuffer([]byte{0x48})
+	prevCalled := 0
+	prev := func() bool {
+		prevCalled++
+		buf.SetString("older")
+		return true
+	}
+
+	handled, changed, err := handleWindowsControlKey(0xe0, reader, buf, prev, nil)
+	if err != nil {
+		t.Fatalf("handleWindowsControlKey returned error: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("expected up arrow to be handled and change buffer")
+	}
+	if prevCalled != 1 {
+		t.Fatalf("expected history previous to be invoked once, got %d", prevCalled)
+	}
+	if got := buf.String(); got != "older" {
+		t.Fatalf("expected buffer replaced with history entry, got %q", got)
+	}
+
+	nextReader := bytes.NewBuffer([]byte{0x50})
+	nextCalled := 0
+	next := func() bool {
+		nextCalled++
+		buf.SetString("pending")
+		return true
+	}
+	handled, changed, err = handleWindowsControlKey(0xe0, nextReader, buf, nil, next)
+	if err != nil {
+		t.Fatalf("handleWindowsControlKey returned error: %v", err)
+	}
+	if !handled || !changed {
+		t.Fatalf("expected down arrow to be handled and change buffer")
+	}
+	if nextCalled != 1 {
+		t.Fatalf("expected history next to be invoked once, got %d", nextCalled)
+	}
+	if got := buf.String(); got != "pending" {
+		t.Fatalf("expected buffer replaced with pending content, got %q", got)
 	}
 }

@@ -45,6 +45,7 @@ type interactiveLineReader struct {
 	input       *os.File
 	output      io.Writer
 	onInterrupt func()
+	history     *inputHistory
 }
 
 func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func()) *interactiveLineReader {
@@ -52,6 +53,7 @@ func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func
 		input:       input,
 		output:      output,
 		onInterrupt: onInterrupt,
+		history:     newInputHistory(),
 	}
 }
 
@@ -67,6 +69,9 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 
 	reader := bufio.NewReader(r.input)
 	buffer := newLineBuffer()
+	if r.history != nil {
+		r.history.Reset()
+	}
 
 	if prompt != "" {
 		if _, err := fmt.Fprint(r.output, prompt); err != nil {
@@ -82,15 +87,32 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 
 		switch b {
 		case '\r', '\n':
+			line := buffer.String()
 			renderLine(r.output, prompt, buffer)
 			_, _ = fmt.Fprint(r.output, "\r\n")
-			return buffer.String(), nil
+			if r.history != nil {
+				if line != "" {
+					r.history.Add(line)
+				} else {
+					r.history.Reset()
+				}
+			}
+			return line, nil
 		case 0x03: // Ctrl+C
 			if r.onInterrupt != nil {
 				r.onInterrupt()
 			}
 			_, _ = fmt.Fprint(r.output, "^C\r\n")
-			return "", io.EOF
+			buffer = newLineBuffer()
+			if r.history != nil {
+				r.history.Reset()
+			}
+			if prompt != "" {
+				if _, err := fmt.Fprint(r.output, prompt); err != nil {
+					return "", err
+				}
+			}
+			continue
 		case 0x04: // Ctrl+D
 			if len(buffer.runes) == 0 {
 				_, _ = fmt.Fprint(r.output, "\r\n")
@@ -107,7 +129,11 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 			}
 		default:
 			if runtime.GOOS == "windows" && (b == 0x00 || b == 0xe0) {
-				handled, changed, err := handleWindowsControlKey(b, reader, buffer)
+				handled, changed, err := handleWindowsControlKey(b, reader, buffer, func() bool {
+					return r.loadPreviousHistory(buffer)
+				}, func() bool {
+					return r.loadNextHistory(buffer)
+				})
 				if err != nil {
 					return "", err
 				}
@@ -167,6 +193,10 @@ func (r *interactiveLineReader) handleEscape(reader *bufio.Reader, buffer *lineB
 			return buffer.MoveLeft()
 		case "C":
 			return buffer.MoveRight()
+		case "A":
+			return r.loadPreviousHistory(buffer)
+		case "B":
+			return r.loadNextHistory(buffer)
 		case "H", "1~", "7~":
 			return buffer.MoveHome()
 		case "F", "4~", "8~":
@@ -186,12 +216,38 @@ func (r *interactiveLineReader) handleEscape(reader *bufio.Reader, buffer *lineB
 			return buffer.MoveHome()
 		case 'F':
 			return buffer.MoveEnd()
+		case 'A':
+			return r.loadPreviousHistory(buffer)
+		case 'B':
+			return r.loadNextHistory(buffer)
 		default:
 			return false
 		}
 	default:
 		return false
 	}
+}
+
+func (r *interactiveLineReader) loadPreviousHistory(buffer *lineBuffer) bool {
+	if r.history == nil {
+		return false
+	}
+	if entry, ok := r.history.Previous(buffer.String()); ok {
+		buffer.SetString(entry)
+		return true
+	}
+	return false
+}
+
+func (r *interactiveLineReader) loadNextHistory(buffer *lineBuffer) bool {
+	if r.history == nil {
+		return false
+	}
+	if entry, ok := r.history.Next(); ok {
+		buffer.SetString(entry)
+		return true
+	}
+	return false
 }
 
 func readCSISequence(reader *bufio.Reader) (string, error) {
@@ -212,7 +268,13 @@ func readCSISequence(reader *bufio.Reader) (string, error) {
 	return string(seq), nil
 }
 
-func handleWindowsControlKey(prefix byte, reader io.ByteReader, buffer *lineBuffer) (bool, bool, error) {
+func handleWindowsControlKey(
+	prefix byte,
+	reader io.ByteReader,
+	buffer *lineBuffer,
+	historyPrev func() bool,
+	historyNext func() bool,
+) (bool, bool, error) {
 	if prefix != 0x00 && prefix != 0xe0 {
 		return false, false, nil
 	}
@@ -233,6 +295,16 @@ func handleWindowsControlKey(prefix byte, reader io.ByteReader, buffer *lineBuff
 		return true, buffer.MoveEnd(), nil
 	case 0x53: // Delete
 		return true, buffer.Delete(), nil
+	case 0x48: // Up arrow
+		if historyPrev == nil {
+			return true, false, nil
+		}
+		return true, historyPrev(), nil
+	case 0x50: // Down arrow
+		if historyNext == nil {
+			return true, false, nil
+		}
+		return true, historyNext(), nil
 	default:
 		return true, false, nil
 	}

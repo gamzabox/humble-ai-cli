@@ -346,6 +346,48 @@ func TestAppDisplaysHelpCommand(t *testing.T) {
 	}
 }
 
+func TestAppPrintsStartupGuide(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{},
+	}
+	factory := newStubFactory()
+	input := strings.NewReader("/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		Version:        "9.9.9-test",
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Humble AI CLI version 9.9.9-test") {
+		t.Fatalf("expected startup guide to include version, got:\n%s", got)
+	}
+	if !strings.Contains(got, "- Use /help for detailed commands.") {
+		t.Fatalf("expected startup guide to include help hint, got:\n%s", got)
+	}
+	if !strings.Contains(got, "- Press CTRL+C to stop, CTRL+D to exit.") {
+		t.Fatalf("expected startup guide to include shortcut hint, got:\n%s", got)
+	}
+}
+
 func TestAppSetToolModeCommandUpdatesConfig(t *testing.T) {
 	store := &stubStore{
 		cfg: config.Config{
@@ -512,7 +554,7 @@ func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
 	if strings.Contains(got, "Call now?") {
 		t.Fatalf("auto mode should not prompt for confirmation, got:\n%s", got)
 	}
-	if !strings.Contains(got, "MCP call completed.") {
+	if !strings.Contains(got, "> MCP call completed.") {
 		t.Fatalf("expected call completion message, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Final answer: 5") {
@@ -1328,7 +1370,7 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 	if !strings.Contains(got, "Tool: add") {
 		t.Fatalf("expected output to include tool name, got:\n%s", got)
 	}
-	if !strings.Contains(got, "Arguments:") || !strings.Contains(got, "  a: 2") || !strings.Contains(got, "  b: 3") {
+	if !strings.Contains(got, "Arguments:") || !strings.Contains(got, "  - a: 2") || !strings.Contains(got, "  - b: 3") {
 		t.Fatalf("expected output to list arguments, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Final answer: 5") {

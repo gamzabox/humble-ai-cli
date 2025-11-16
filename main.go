@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/gamzabox/humble-ai-cli/internal/app"
+	"github.com/gamzabox/humble-ai-cli/internal/buildinfo"
 	"github.com/gamzabox/humble-ai-cli/internal/config"
 	"github.com/gamzabox/humble-ai-cli/internal/llm"
 )
@@ -14,7 +15,7 @@ import (
 func main() {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to determine home directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> failed to determine home directory: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -29,16 +30,18 @@ func main() {
 		ErrorOutput:    os.Stderr,
 		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
 		HomeDir:        home,
+		Version:        buildinfo.Version,
+		BuildDate:      buildinfo.Date,
 	}
 
 	instance, err := app.New(options)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize application: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> failed to initialize application: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := instance.Run(context.Background()); err != nil {
-		fmt.Fprintf(os.Stderr, "application error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> application error: %v\n", err)
 		os.Exit(1)
 	}
 }

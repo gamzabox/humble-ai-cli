@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -47,46 +48,55 @@ type serverConfig struct {
 	Args        []string
 	Env         map[string]string
 	URL         string
-	Transport   string
+	Type        string
 }
 
 const (
-	transportCommand = "command"
-	transportSSE     = "sse"
-	transportHTTP    = "http"
+	connectionTypeStdio          = "stdio"
+	connectionTypeSSE            = "sse"
+	connectionTypeStreamableHTTP = "streamable-http"
 )
 
 func (cfg serverConfig) connectionKind() (string, error) {
 	command := strings.TrimSpace(cfg.Command)
 	url := strings.TrimSpace(cfg.URL)
+	connType := strings.ToLower(strings.TrimSpace(cfg.Type))
 
-	if command != "" && url != "" {
-		return "", fmt.Errorf("mcp server %q must define either a command or url", cfg.Name)
-	}
 	if command == "" && url == "" {
 		return "", fmt.Errorf("mcp server %q has no command or url configured", cfg.Name)
 	}
 
-	if command != "" {
-		return transportCommand, nil
+	if url == "" {
+		if connType != "" && connType != connectionTypeStdio {
+			return "", fmt.Errorf("mcp server %q type must be stdio when only a command is configured", cfg.Name)
+		}
+		return connectionTypeStdio, nil
 	}
 
-	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
-	if transport == "" {
-		transport = transportSSE
+	if connType == "" {
+		return "", fmt.Errorf("mcp server %q must define type when url is configured", cfg.Name)
 	}
 
-	switch transport {
-	case transportSSE:
-		return transportSSE, nil
-	case transportHTTP:
-		return transportHTTP, nil
+	switch connType {
+	case connectionTypeStdio:
+		if command == "" {
+			return "", fmt.Errorf("mcp server %q type stdio requires command to be set", cfg.Name)
+		}
+		return connectionTypeStdio, nil
+	case connectionTypeSSE:
+		return connectionTypeSSE, nil
+	case connectionTypeStreamableHTTP:
+		return connectionTypeStreamableHTTP, nil
 	default:
-		return "", fmt.Errorf("mcp server %q has unsupported transport %q", cfg.Name, cfg.Transport)
+		return "", fmt.Errorf("mcp server %q has unsupported type %q", cfg.Name, cfg.Type)
 	}
 }
 
-type sessionDialer func(context.Context, serverConfig) (*sessionHolder, error)
+type DebugLogger interface {
+	Debugf(format string, args ...any)
+}
+
+type sessionDialer func(context.Context, serverConfig, DebugLogger) (*sessionHolder, error)
 
 // Manager loads server configurations and executes MCP tool calls.
 type Manager struct {
@@ -95,6 +105,7 @@ type Manager struct {
 	servers  map[string]serverConfig
 	sessions map[string]*sessionHolder
 	connect  sessionDialer
+	logger   DebugLogger
 }
 
 // NewManager creates a Manager rooted at the provided home directory.
@@ -226,10 +237,18 @@ func (m *Manager) Reload() error {
 	}
 
 	m.mu.Lock()
+	prev := m.servers
 	toClose := make([]*sessionHolder, 0)
 	for name, holder := range m.sessions {
 		cfg, ok := servers[name]
 		if !ok || !cfg.Enabled {
+			if holder != nil {
+				toClose = append(toClose, holder)
+			}
+			delete(m.sessions, name)
+			continue
+		}
+		if prevCfg, ok := prev[name]; !ok || !equivalentServerConfig(prevCfg, cfg) {
 			if holder != nil {
 				toClose = append(toClose, holder)
 			}
@@ -268,13 +287,14 @@ func (m *Manager) ensureSession(ctx context.Context, name string) (*sessionHolde
 		stale = holder
 	}
 	dial := m.connect
+	logger := m.logger
 	m.mu.Unlock()
 
 	if stale != nil {
 		_ = stale.Close()
 	}
 
-	newHolder, err := dial(ctx, cfg)
+	newHolder, err := dial(ctx, cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("connect MCP server %q: %w", name, err)
 	}
@@ -333,7 +353,7 @@ func (m *Manager) fetchTools(ctx context.Context, session *sdk.ClientSession) ([
 	return out, nil
 }
 
-func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder, error) {
+func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLogger) (*sessionHolder, error) {
 	client := sdk.NewClient(&sdk.Implementation{
 		Name:    "humble-ai-cli",
 		Version: "0.1.0",
@@ -345,9 +365,12 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder
 	}
 
 	switch kind {
-	case transportCommand:
+	case connectionTypeStdio:
 		cmd := exec.Command(cfg.Command, cfg.Args...)
 		if env := envList(cfg.Env); len(env) > 0 {
+			if logger != nil {
+				logger.Debugf("MCP server %s env: %v", cfg.Name, env)
+			}
 			cmd.Env = append(os.Environ(), env...)
 		}
 		transport := &sdk.CommandTransport{Command: cmd}
@@ -361,32 +384,49 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder
 		}
 		return newSessionHolder(session, nil), nil
 
-	case transportSSE:
+	case connectionTypeSSE:
 		httpClient := httpClientWithHeaders(cfg.Env)
 		transport := &sdk.SSEClientTransport{
 			Endpoint:   cfg.URL,
 			HTTPClient: httpClient,
 		}
 		session, err := client.Connect(ctx, transport, nil)
+		if err != nil && isMissingEndpointError(err) {
+			if logger != nil {
+				logger.Debugf("SSE missing endpoint for %s, retrying with streamable HTTP", cfg.Name)
+			}
+			return connectStreamableHTTP(ctx, client, cfg, httpClient)
+		}
 		if err != nil {
 			return nil, err
 		}
 		return newSessionHolder(session, nil), nil
 
-	case transportHTTP:
+	case connectionTypeStreamableHTTP:
 		httpClient := httpClientWithHeaders(cfg.Env)
-		transport := &sdk.StreamableClientTransport{
-			Endpoint:   cfg.URL,
-			HTTPClient: httpClient,
-		}
-		session, err := client.Connect(ctx, transport, nil)
-		if err != nil {
-			return nil, err
-		}
-		return newSessionHolder(session, nil), nil
+		return connectStreamableHTTP(ctx, client, cfg, httpClient)
 	}
 
-	return nil, fmt.Errorf("unsupported transport for server %q", cfg.Name)
+	return nil, fmt.Errorf("unsupported type for server %q", cfg.Name)
+}
+
+func connectStreamableHTTP(ctx context.Context, client *sdk.Client, cfg serverConfig, httpClient *http.Client) (*sessionHolder, error) {
+	transport := &sdk.StreamableClientTransport{
+		Endpoint:   cfg.URL,
+		HTTPClient: httpClient,
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, err
+	}
+	return newSessionHolder(session, nil), nil
+}
+
+func isMissingEndpointError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "missing endpoint")
 }
 
 type sessionHolder struct {
@@ -665,6 +705,7 @@ type rawServerConfig struct {
 	Args        []string          `json:"args,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	URL         string            `json:"url,omitempty"`
+	Type        string            `json:"type,omitempty"`
 	Transport   string            `json:"transport,omitempty"`
 }
 
@@ -677,6 +718,17 @@ func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
 		return serverConfig{}, fmt.Errorf("invalid MCP server entry %q: missing name", key)
 	}
 
+	connType := strings.ToLower(strings.TrimSpace(raw.Type))
+	if connType == "" {
+		connType = strings.ToLower(strings.TrimSpace(raw.Transport))
+	}
+	switch connType {
+	case "command":
+		connType = connectionTypeStdio
+	case "http":
+		connType = connectionTypeStreamableHTTP
+	}
+
 	cfg := serverConfig{
 		Name:        name,
 		Description: strings.TrimSpace(raw.Description),
@@ -685,33 +737,56 @@ func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
 		Args:        append([]string(nil), raw.Args...),
 		Env:         cloneStringMap(raw.Env),
 		URL:         strings.TrimSpace(raw.URL),
-		Transport:   strings.ToLower(strings.TrimSpace(raw.Transport)),
+		Type:        connType,
 	}
 	if raw.Enabled != nil {
 		cfg.Enabled = *raw.Enabled
 	}
-	if cfg.Transport == transportCommand {
-		cfg.Transport = ""
-	}
 
-	if cfg.Command != "" && cfg.URL != "" {
-		return serverConfig{}, fmt.Errorf("server %q must define either a command or url, not both", name)
-	}
-	if cfg.Command == "" && cfg.URL == "" {
+	hasCommand := cfg.Command != ""
+	hasURL := cfg.URL != ""
+	if !hasCommand && !hasURL {
 		return serverConfig{}, fmt.Errorf("server %q must define either a command or url", name)
 	}
-	if cfg.URL != "" {
-		if cfg.Transport == "" {
-			cfg.Transport = transportSSE
+
+	if !hasURL {
+		if cfg.Type == "" {
+			cfg.Type = connectionTypeStdio
 		}
-		switch cfg.Transport {
-		case transportSSE, transportHTTP:
-		default:
-			return serverConfig{}, fmt.Errorf("server %q has unsupported transport %q", name, cfg.Transport)
+		if cfg.Type != connectionTypeStdio {
+			return serverConfig{}, fmt.Errorf("server %q type must be stdio when only a command is configured", name)
 		}
+		return cfg, nil
 	}
 
-	return cfg, nil
+	if cfg.Type == "" {
+		return serverConfig{}, fmt.Errorf("server %q must define type when url is configured", name)
+	}
+
+	switch cfg.Type {
+	case connectionTypeSSE, connectionTypeStreamableHTTP:
+		return cfg, nil
+	case connectionTypeStdio:
+		if !hasCommand {
+			return serverConfig{}, fmt.Errorf("server %q type stdio requires command to be set", name)
+		}
+		return cfg, nil
+	default:
+		return serverConfig{}, fmt.Errorf("server %q has unsupported type %q", name, cfg.Type)
+	}
+}
+
+func equivalentServerConfig(a, b serverConfig) bool {
+	if a.Command != b.Command || a.URL != b.URL || a.Type != b.Type {
+		return false
+	}
+	if !slices.Equal(a.Args, b.Args) {
+		return false
+	}
+	if !stringMapEqual(a.Env, b.Env) {
+		return false
+	}
+	return true
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
@@ -730,6 +805,23 @@ func cloneStringMap(src map[string]string) map[string]string {
 		return nil
 	}
 	return dst
+}
+
+func stringMapEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
+		}
+	}
+	for key := range b {
+		if _, ok := a[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func envList(env map[string]string) []string {
@@ -817,4 +909,9 @@ func convertResult(res *sdk.CallToolResult) (llm.ToolResult, error) {
 		Content: builder.String(),
 		IsError: res.IsError,
 	}, nil
+}
+func (m *Manager) SetLogger(logger DebugLogger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logger = logger
 }

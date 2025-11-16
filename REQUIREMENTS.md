@@ -10,6 +10,14 @@
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
 - 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
 
+## Build & Release
+- `build.sh` 스크립트를 제공해 cross-platform 빌드를 수행한다.
+- 스크립트는 `git describe --tags --abbrev=0` 결과를 version 값으로 사용하고, 태그가 없을 경우 `dev` 를 사용한다.
+- build 시 ldflags `-X` 옵션으로 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Version` 과 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Date` 값을 각각 최신 git tag, UTC 빌드 시간(ISO8601/RFC3339 형식)으로 주입한다.
+- `internal/buildinfo` 의 version 기본값은 `dev`, date 기본값은 `unknown` 이어야 한다.
+- 빌드 타겟은 `linux/amd64`, `windows/amd64`, `windows/arm64` 이며 출력 파일명은 각각 `humble-ai-cli`, `humble-ai-cli_amd64.exe`, `humble-ai-cli_arm64.exe` 여야 한다.
+- 생성된 바이너리는 `dist/` 디렉터리에 저장한다.
+
 ```
 # Connected Tools
 
@@ -104,6 +112,7 @@ Before calling EACH MCP function:
 # 3) Function Call Protocol
 - One message = one function call JSON only.
 - Do NOT combine multiple calls in the same message.
+- Hyphen `-` and underscore `_` are different characters. NEVER interchange them.
 - Review previous calls to avoid duplication.
 
 ---
@@ -141,13 +150,21 @@ Ask minimal questions required to make the next legitimate function call.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.
 - 모든 LLM 호출 시 `temperature` 파라미터는 0.1 로 고정해 전달한다.
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.
+- 프로그램 실행 직후 CLI 는 현재 buildinfo.Version 값을 포함해 아래 순서대로 3줄 안내 메시지를 항상 출력한다.
+  ```
+  Humble AI CLI version <version>
+  - Use /help for detailed commands.
+  - Press CTRL+C to stop, CTRL+D to exit.
+  ```
 - 현재 활성화된 model 이 없는 상태에서 질문을 입력하면 /set-model 커맨트를 통해 model 을 선택하도록 가이드 하고, config.json 에 설정된 model 이 없을경우 config.json 에 model 설정을 추가 하라고 가이드 한다.
 - 프로그램 실행시 새로운 세션을 메모리상에서만 생성하고 파일로 저장하지 않는다. 대화 세션의 파일 저장은 최초 LLM 으로 부터 답변을 받은 시점 부터 이다.
 - 질문을 입력하면 우선 "Waiting for response..." 를 출력한다.
 - LLM 으로부터 thinking 메시지를 수신하면 `<<< Thinking >>>` 줄을 출력한 뒤 thinking 내용을 스트리밍으로 표시하고, 종료 시 `<<< End Thinking >>>` 줄을 출력한다.
 - LLM 의 답변을 기다리거나 출력 중에 CTRL+C 를 누르면 다시 입력 모드로 돌아 간다.
-- 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료 한다.
+- 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료하지 않고 `Press CTRL+D to exit the program.` 안내 메시지를 출력한 뒤 입력을 계속 기다린다.
+- 입력 대기 상태에서 CTRL+D 를 누르면 프로그램을 종료한다.
 - 프롬프트 입력 시 좌우 방향키, Home, End 키로 커서를 이동할 수 있어야 하며, 한국어/중국어/일본어 등 다국어 입력에서도 정상 동작해야 한다.
+- 입력 중 상/하 방향키로 동일 세션의 이전 입력을 탐색할 수 있어야 하며, 상 방향키는 더 과거의 입력을 순차적으로 불러오고 하 방향키는 다시 최신 입력으로 이동한다. 히스토리를 탐색하다가 하 방향키로 최신 위치로 돌아오면 탐색 시작 직전까지 작성 중이던 내용이 그대로 복원되어야 한다.
 
 ## Config
 - API 연계 정보등의 설정은 $HOME/.humble-ai-cli/config.json 파일을 사용 함
@@ -180,7 +197,7 @@ Ask minimal questions required to make the next legitimate function call.
     - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 tool 이름과 description 을 출력한다.
     - /toggle-mcp: mcp-servers.json 에 등록된 MCP 서버 리스트를 번호와 함께 출력하고 현재 enabled 상태를 표시한다. 번호를 선택하면 해당 서버의 enabled 값을 반전하여 파일에 저장하고, 0을 입력하면 취소한다. 설정이 변경되면 CLI 는 즉시 갱신된 enabled 상태를 반영한다.
     - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
-    - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)
+    - /exit: 프로그램을 종료한다. (입력 모드에서 CTRL+D 를 누르는 것과 동일하게 종료된다.)
 
 ## Logging
 - $HOME/.humble-ai-cli/logs 디렉토리에 날짜별 로그파일(application-hac-%d{yyyy-MM-dd}.log) 을 생성하고 기록한다.
@@ -192,9 +209,11 @@ Ask minimal questions required to make the next legitimate function call.
 ## MCP Server 호출 기능
 - MCP Server 설정은 $HOME/.humble-ai-cli/mcp-servers.json 단일 파일에서 관리하며, JSON 구조는 다음을 따른다.
   - 루트에 `mcpServers` 오브젝트를 두고 key 를 MCP 서버 이름으로 사용한다.
-  - 각 서버 항목은 `description`, `enabled`(기본값 true), `command`, `args`, `env`, `url`, `transport` 필드를 지원한다.
-  - command 기반 서버는 `command` 와 선택적 `args`, `env`(프로세스 환경 변수)를 지정한다.
-  - 원격 서버는 `url` 을 지정하고, `transport` 로 `sse`(기본값) 또는 `http`(streamable HTTP) 를 선택할 수 있다.
+  - 각 서버 항목은 `description`, `enabled`(기본값 true), `command`, `args`, `env`, `url`, `type` 필드를 지원한다.
+  - `type` 에는 `stdio`, `sse`, `streamable-http` 값을 사용할 수 있다.
+  - command 기반 서버는 `command` 와 선택적 `args`, `env`(프로세스 환경 변수)를 지정하고, `type` 은 생략하거나 `stdio` 로 지정한다.
+  - 원격 서버는 `url` 을 지정하고, `type` 에 `sse` 또는 `streamable-http` 를 설정해야 한다. `command` 와 `url` 을 모두 설정한 경우 `type` 값에 따라 사용할 전송 방식을 선택한다(`stdio` → command, `sse`/`streamable-http` → url).
+  - 원격 서버의 `env` 항목은 HTTP 헤더로 전송되어 토큰 등 인증 정보를 전달한다. `sse` 로 설정했지만 서버가 SSE `endpoint` 이벤트를 제공하지 않으면 CLI 가 자동으로 streamable HTTP 로 재시도한다.
   - 원격 서버의 `env` 항목은 HTTP 헤더로 전송되어 토큰 등 인증 정보를 전달한다.
   - `command` 와 `url` 중 하나는 반드시 설정되어야 하며, 동시에 둘 다 설정하면 안 된다.
 - MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음

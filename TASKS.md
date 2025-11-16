@@ -180,3 +180,42 @@
 - [x] REQUIREMENTS.md 에 context chunking 요구사항을 반영한다.
 - [x] Context chunking 로직을 검증하는 테스트를 먼저 작성한다.
 - [x] Context chunking 구현을 완료하고 전체 테스트(`go test ./...`)를 통과시킨다.
+
+# CTRL+D 종료 안내
+- [x] REQUIREMENTS.md/README.md 에 CTRL+D 종료 및 CTRL+C 가이드 요구사항을 반영한다.
+- [x] CTRL+D 종료 및 CTRL+C 가이드 동작을 검증하는 테스트를 먼저 작성한다.
+- [x] 입력 처리 및 인터럽트 로직을 수정해 요구사항을 만족시킨다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP Env 적용 문제 수정
+- [x] MCP env 적용 요구사항을 테스트로 검증한다.
+- [x] MCP Manager 가 env 설정을 반영하도록 구현을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# 입력 기록 히스토리 네비게이션
+- [x] 상/하 방향키 입력 히스토리 네비게이션 요구사항을 테스트로 정의한다.
+- [x] 프롬프트 입력 히스토리 네비게이션 기능을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Versioned Build Script
+- [x] build metadata 요구사항을 REQUIREMENTS.md 와 README.md 에 반영한다.
+- [x] version/date 기본값을 검증하는 테스트를 먼저 작성한다.
+- [x] build metadata 로직과 build.sh 스크립트를 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# 실행시 안내 메시지 출력
+- [ ] REQUIREMENTS.md/TASKS.md 에 실행 가이드 출력 요구사항을 반영한다.
+- [ ] 프로그램 시작 시 안내 메시지를 출력하는 테스트를 먼저 작성한다.
+- [ ] 안내 메시지 출력 기능을 구현한다.
+- [ ] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Streamable HTTP MCP 연결 실패 수정
+- [x] streamable HTTP MCP 서버 초기화 실패 현상을 재현하는 테스트를 작성한다.
+- [x] SSE 연결 실패 시 HTTP 연동으로 자동 전환하는 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP Server Type 필드 지원
+- [x] MCP server `type` 필드 요구사항을 REQUIREMENTS.md/README.md/TASKS.md 에 반영한다.
+- [x] `type` 필드 조합을 검증하는 테스트를 먼저 작성한다.
+- [x] Manager 구성 로직을 수정해 stdio/sse/streamable-http 타입과 URL/command 우선순위를 처리한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

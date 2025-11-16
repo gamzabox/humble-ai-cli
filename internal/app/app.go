@@ -69,6 +69,8 @@ type Options struct {
 	Clock          Clock
 	Interrupts     chan os.Signal
 	MCP            MCPExecutor
+	Version        string
+	BuildDate      string
 }
 
 // App coordinates CLI behaviour.
@@ -81,6 +83,8 @@ type App struct {
 	historyRoot string
 	homeDir     string
 	clock       Clock
+	version     string
+	buildDate   string
 
 	systemPrompt   string
 	logger         *logging.Logger
@@ -121,6 +125,7 @@ var errToolDeclined = errors.New("mcp call declined by user")
 const (
 	routeIntentServerName = "route-intent"
 	routeIntentToolName   = "chooseFunction"
+	ctrlDExitGuide        = "Press CTRL+D to exit the program."
 )
 
 // New constructs an App from options.
@@ -163,12 +168,21 @@ func New(opts Options) (*App, error) {
 	}
 
 	mcpExec := opts.MCP
+	var (
+		configuredServers []mcpkg.ConfiguredServer
+		syncConfig        bool
+	)
 	if mcpExec == nil {
 		manager, err := mcpkg.NewManager(home)
 		if err != nil {
 			return nil, fmt.Errorf("initialize MCP manager: %w", err)
 		}
 		mcpExec = manager
+		syncConfig = true
+		configuredServers, err = mcpkg.ListConfiguredServers(home)
+		if err != nil {
+			return nil, err
+		}
 	}
 	servers := mcpExec.EnabledServers()
 	serverMap := make(map[string]MCPServer, len(servers))
@@ -194,6 +208,11 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("initialize context chunker: %w", err)
 	}
 
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
+
 	app := &App{
 		store:          opts.Store,
 		factory:        opts.Factory,
@@ -202,6 +221,8 @@ func New(opts Options) (*App, error) {
 		historyRoot:    historyRoot,
 		homeDir:        home,
 		clock:          clock,
+		version:        version,
+		buildDate:      opts.BuildDate,
 		systemPrompt:   "",
 		logger:         logger,
 		contextChunker: chunker,
@@ -218,9 +239,20 @@ func New(opts Options) (*App, error) {
 
 	app.setupSignals(opts.Interrupts)
 
-	if err := app.loadMCPFunctions(context.Background()); err != nil {
-		_ = app.mcp.Close()
-		return nil, err
+	if mgr, ok := mcpExec.(*mcpkg.Manager); ok {
+		mgr.SetLogger(app.logger)
+	}
+
+	if syncConfig {
+		if err := app.applyConfiguredMCPServers(context.Background(), configuredServers); err != nil {
+			_ = app.mcp.Close()
+			return nil, err
+		}
+	} else {
+		if err := app.loadMCPFunctions(context.Background()); err != nil {
+			_ = app.mcp.Close()
+			return nil, err
+		}
 	}
 
 	if err := app.initializeSystemPrompt(); err != nil {
@@ -279,7 +311,7 @@ func (a *App) loadMCPFunctions(ctx context.Context) error {
 		a.logDebug("MCP initialization: loading tools for server=%s", srv.Name)
 		tools, err := a.mcp.Tools(ctx, srv.Name)
 		if err != nil {
-			fmt.Fprintf(a.errOutput, "Failed to list tools for %s: %v\n", srv.Name, err)
+			fmt.Fprintf(a.errOutput, "> Failed to list tools for %s: %v\n", srv.Name, err)
 			a.logError("MCP initialization failed: server=%s err=%v", srv.Name, err)
 			continue
 		}
@@ -358,6 +390,7 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"# 3) Function Call Protocol\n" +
 		"- One message = one function call JSON only.\n" +
 		"- Do NOT combine multiple calls in the same message.\n" +
+		"- Hyphen `-` and underscore `_` are different characters. NEVER interchange them.\n" +
 		"- Review previous calls to avoid duplication.\n\n" +
 		"---\n\n" +
 		"# 4) Error Handling\n" +
@@ -413,6 +446,8 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 
+	a.printStartupGuide()
+
 	for {
 		if a.shouldExit() {
 			return nil
@@ -434,7 +469,7 @@ func (a *App) Run(ctx context.Context) error {
 		if strings.HasPrefix(line, "/") {
 			exit, err := a.handleCommand(ctx, line)
 			if err != nil {
-				fmt.Fprintf(a.errOutput, "Error: %v\n", err)
+				fmt.Fprintf(a.errOutput, "> Error: %v\n", err)
 			}
 			if a.shouldExit() {
 				return nil
@@ -446,13 +481,24 @@ func (a *App) Run(ctx context.Context) error {
 		}
 
 		if err := a.handleUserMessage(ctx, line); err != nil {
-			fmt.Fprintf(a.errOutput, "Error: %v\n", err)
+			fmt.Fprintf(a.errOutput, "> Error: %v\n", err)
 		}
 
 		if a.shouldExit() {
 			return nil
 		}
 	}
+}
+
+func (a *App) printStartupGuide() {
+	if a.output == nil {
+		return
+	}
+	version := a.version
+	if version == "" {
+		version = "dev"
+	}
+	fmt.Fprintf(a.output, "Humble AI CLI version %s\n- Use /help for detailed commands.\n- Press CTRL+C to stop, CTRL+D to exit.\n", version)
 }
 
 func (a *App) readLine(prompt string) (string, error) {
@@ -487,13 +533,13 @@ func (a *App) handleCommand(ctx context.Context, line string) (bool, error) {
 	case "/exit":
 		return true, nil
 	default:
-		fmt.Fprintf(a.output, "Unknown command: %s\n", line)
+		fmt.Fprintf(a.output, "> Unknown command: %s\n", line)
 	}
 	return false, nil
 }
 
 func (a *App) printHelp() {
-	fmt.Fprintln(a.output, "Available commands:")
+	fmt.Fprintln(a.output, "> Available commands:")
 	fmt.Fprintln(a.output, "  /help       Show this help message.")
 	fmt.Fprintln(a.output, "  /new        Start a fresh session.")
 	fmt.Fprintln(a.output, "  /set-model  Select one of the configured models as active.")
@@ -509,11 +555,11 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 	a.cfgMu.RUnlock()
 
 	if len(cfg.Models) == 0 {
-		fmt.Fprintf(a.output, "No models configured. Please add entries to %s.\n", a.configFilePath())
+		fmt.Fprintf(a.output, "> No models configured. Please add entries to %s.\n", a.configFilePath())
 		return nil
 	}
 
-	fmt.Fprintln(a.output, "Select a model (0 to cancel):")
+	fmt.Fprintln(a.output, "> Select a model (0 to cancel):")
 	for idx, m := range cfg.Models {
 		activeMarker := ""
 		if m.Active {
@@ -533,12 +579,12 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 
 	choice, err := strconv.Atoi(choiceLine)
 	if err != nil || choice < 0 || choice > len(cfg.Models) {
-		fmt.Fprintln(a.output, "Invalid selection.")
+		fmt.Fprintln(a.output, "> Invalid selection.")
 		return nil
 	}
 
 	if choice == 0 {
-		fmt.Fprintln(a.output, "Model selection cancelled.")
+		fmt.Fprintln(a.output, "> Model selection cancelled.")
 		return nil
 	}
 	for i := range cfg.Models {
@@ -553,7 +599,7 @@ func (a *App) changeActiveModel(ctx context.Context) error {
 	a.cfg = cfg
 	a.cfgMu.Unlock()
 
-	fmt.Fprintf(a.output, "Active model set to %s (%s).\n", selected.Name, selected.Provider)
+	fmt.Fprintf(a.output, "> Active model set to %s (%s).\n", selected.Name, selected.Provider)
 	return nil
 }
 
@@ -563,13 +609,13 @@ func (a *App) configFilePath() string {
 
 func (a *App) setToolMode(args []string) error {
 	if len(args) != 1 {
-		fmt.Fprintln(a.output, "Usage: /set-tool-mode [auto|manual]")
+		fmt.Fprintln(a.output, "> Usage: /set-tool-mode [auto|manual]")
 		return nil
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(args[0]))
 	if mode != string(config.ToolCallModeAuto) && mode != string(config.ToolCallModeManual) {
-		fmt.Fprintln(a.output, "Please enter either auto or manual.")
+		fmt.Fprintln(a.output, "> Please enter either auto or manual.")
 		return nil
 	}
 
@@ -586,7 +632,7 @@ func (a *App) setToolMode(args []string) error {
 	a.cfg = cfg
 	a.cfgMu.Unlock()
 
-	fmt.Fprintf(a.output, "Tool call mode set to %s.\n", mode)
+	fmt.Fprintf(a.output, "> Tool call mode set to %s.\n", mode)
 	return nil
 }
 
@@ -599,7 +645,7 @@ func (a *App) startNewSession() {
 
 	a.messages = nil
 
-	fmt.Fprintln(a.output, "Started a new session.")
+	fmt.Fprintln(a.output, "> Started a new session.")
 }
 
 func (a *App) handleUserMessage(ctx context.Context, content string) error {
@@ -609,9 +655,9 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	activeModel, ok := cfg.ActiveModel()
 	if !ok {
-		fmt.Fprintln(a.output, "No active model is configured. Use /set-model to choose a model.")
+		fmt.Fprintln(a.output, "> No active model is configured. Use /set-model to choose a model.")
 		if len(cfg.Models) == 0 {
-			fmt.Fprintf(a.output, "Add model configuration to %s and try again.\n", a.configFilePath())
+			fmt.Fprintf(a.output, "> Add model configuration to %s and try again.\n", a.configFilePath())
 		}
 		return nil
 	}
@@ -620,7 +666,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		a.firstUserInput = content
 	}
 
-	fmt.Fprintln(a.output, "Waiting for response...")
+	fmt.Fprintln(a.output, "> Waiting for response...")
 
 	provider, err := a.factory.Create(activeModel)
 	if err != nil {
@@ -702,7 +748,7 @@ loop:
 	for chunk := range stream {
 		if chunk.Err != nil {
 			closeThinking()
-			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
+			fmt.Fprintf(a.errOutput, "> Stream error: %v\n", chunk.Err)
 			a.logError("LLM stream error: %v", chunk.Err)
 			errored = true
 			continue
@@ -737,7 +783,7 @@ loop:
 				if errors.Is(err, errToolDeclined) {
 					cancelledByUser = true
 				} else {
-					fmt.Fprintf(a.errOutput, "MCP call failed: %v\n", err)
+					fmt.Fprintf(a.errOutput, "> MCP call failed: %v\n", err)
 					a.logError("MCP call handling failed: %v", err)
 				}
 				errored = true
@@ -745,7 +791,7 @@ loop:
 			}
 		case llm.ChunkError:
 			closeThinking()
-			fmt.Fprintf(a.errOutput, "Stream error: %v\n", chunk.Err)
+			fmt.Fprintf(a.errOutput, "> Stream error: %v\n", chunk.Err)
 			a.logError("LLM stream error chunk: %v", chunk.Err)
 			errored = true
 		case llm.ChunkDone:
@@ -762,7 +808,7 @@ loop:
 	}
 
 	if reqCtx.Err() != nil {
-		fmt.Fprintln(a.output, "\nResponse cancelled.")
+		fmt.Fprintln(a.output, "\n> Response cancelled.")
 		a.logDebug("LLM response context cancelled: %v", reqCtx.Err())
 		return nil
 	}
@@ -785,7 +831,7 @@ loop:
 	)
 
 	if err := a.persistHistory(activeModel.Name, now); err != nil {
-		fmt.Fprintf(a.errOutput, "Failed to persist history: %v\n", err)
+		fmt.Fprintf(a.errOutput, "> Failed to persist history: %v\n", err)
 	}
 
 	return nil
@@ -859,11 +905,11 @@ func (a *App) toggleMCPServer(ctx context.Context) error {
 		return err
 	}
 	if len(entries) == 0 {
-		fmt.Fprintln(a.output, "No MCP servers configured in mcp-servers.json.")
+		fmt.Fprintln(a.output, "> No MCP servers configured in mcp-servers.json.")
 		return nil
 	}
 
-	fmt.Fprintln(a.output, "MCP servers found in mcp-servers.json:")
+	fmt.Fprintln(a.output, "> MCP servers found in mcp-servers.json:")
 	for idx, entry := range entries {
 		status := "disabled"
 		if entry.Enabled {
@@ -879,17 +925,17 @@ func (a *App) toggleMCPServer(ctx context.Context) error {
 
 	choiceLine = strings.TrimSpace(choiceLine)
 	if choiceLine == "" {
-		fmt.Fprintln(a.output, "Toggle cancelled.")
+		fmt.Fprintln(a.output, "> Toggle cancelled.")
 		return nil
 	}
 
 	choice, err := strconv.Atoi(choiceLine)
 	if err != nil || choice < 0 || choice > len(entries) {
-		fmt.Fprintln(a.output, "Invalid selection.")
+		fmt.Fprintln(a.output, "> Invalid selection.")
 		return nil
 	}
 	if choice == 0 {
-		fmt.Fprintln(a.output, "Toggle cancelled.")
+		fmt.Fprintln(a.output, "> Toggle cancelled.")
 		return nil
 	}
 
@@ -903,21 +949,21 @@ func (a *App) toggleMCPServer(ctx context.Context) error {
 	if updated.Enabled {
 		status = "enabled"
 	}
-	fmt.Fprintf(a.output, "Server %q is now %s.\n", updated.Name, status)
+	fmt.Fprintf(a.output, "> Server %q is now %s.\n", updated.Name, status)
 
 	if a.mcp != nil {
 		if err := a.mcp.Reload(); err != nil {
-			fmt.Fprintf(a.errOutput, "Failed to reload MCP servers: %v\n", err)
+			fmt.Fprintf(a.errOutput, "> Failed to reload MCP servers: %v\n", err)
 		}
 	}
 
 	refreshed, err := mcpkg.ListConfiguredServers(a.homeDir)
 	if err != nil {
-		fmt.Fprintf(a.errOutput, "Failed to refresh MCP server list: %v\n", err)
+		fmt.Fprintf(a.errOutput, "> Failed to refresh MCP server list: %v\n", err)
 		return nil
 	}
 	if err := a.applyConfiguredMCPServers(ctx, refreshed); err != nil {
-		fmt.Fprintf(a.errOutput, "Failed to update MCP server cache: %v\n", err)
+		fmt.Fprintf(a.errOutput, "> Failed to update MCP server cache: %v\n", err)
 	}
 	return nil
 }
@@ -949,7 +995,7 @@ func (a *App) applyConfiguredMCPServers(ctx context.Context, entries []MCPConfig
 
 func (a *App) printMCPServers(ctx context.Context) error {
 	if a.mcp == nil {
-		fmt.Fprintln(a.output, "MCP integration is not configured.")
+		fmt.Fprintln(a.output, "> MCP integration is not configured.")
 		return nil
 	}
 
@@ -959,11 +1005,11 @@ func (a *App) printMCPServers(ctx context.Context) error {
 
 	names := a.sortedMCPServerNames()
 	if len(names) == 0 {
-		fmt.Fprintln(a.output, "No MCP servers are currently enabled.")
+		fmt.Fprintln(a.output, "> No MCP servers are currently enabled.")
 		return nil
 	}
 
-	fmt.Fprintln(a.output, "Enabled MCP servers:")
+	fmt.Fprintln(a.output, "> Enabled MCP servers:")
 	a.mcpMu.RLock()
 	for _, name := range names {
 		srv := a.mcpServers[name]
@@ -1167,10 +1213,10 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 	}
 	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
-	fmt.Fprintln(a.output, "\nMCP tool call")
-	fmt.Fprintf(a.output, "Server: %s\n", call.Server)
-	fmt.Fprintf(a.output, "Tool: %s\n", call.Method)
-	fmt.Fprintln(a.output, "Arguments:")
+	fmt.Fprintln(a.output, "\n> MCP tool call")
+	fmt.Fprintf(a.output, "- Server: %s\n", call.Server)
+	fmt.Fprintf(a.output, "- Tool: %s\n", call.Method)
+	fmt.Fprintln(a.output, "- Arguments:")
 
 	keys := make([]string, 0, len(call.Arguments))
 	for key := range call.Arguments {
@@ -1181,7 +1227,7 @@ func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, ca
 		fmt.Fprintln(a.output, "  (none)")
 	} else {
 		for _, key := range keys {
-			fmt.Fprintf(a.output, "  %s: %s\n", key, formatToolArgument(call.Arguments[key]))
+			fmt.Fprintf(a.output, "  - %s: %s\n", key, formatToolArgument(call.Arguments[key]))
 		}
 	}
 
@@ -1219,7 +1265,7 @@ func (a *App) executeToolCall(ctx context.Context, call *llm.ToolCall) error {
 	}
 
 	a.logDebug("MCP call success: server=%s method=%s result=%s", call.Server, call.Method, strings.TrimSpace(result.Content))
-	fmt.Fprintln(a.output, "MCP call completed.")
+	fmt.Fprintln(a.output, "> MCP call completed.")
 	return nil
 }
 
@@ -1239,10 +1285,10 @@ func (a *App) confirmToolCall(ctx context.Context, cancel context.CancelFunc, ca
 			}
 			cancel()
 			a.logDebug("MCP call cancelled by user: server=%s method=%s", call.Server, call.Method)
-			fmt.Fprintln(a.output, "MCP call cancelled by user.")
+			fmt.Fprintln(a.output, "> MCP call cancelled by user.")
 			return errToolDeclined
 		default:
-			fmt.Fprintln(a.output, "Please answer with Y or N.")
+			fmt.Fprintln(a.output, "> Please answer with Y or N.")
 		}
 	}
 }
@@ -1300,7 +1346,7 @@ func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) 
 	}
 
 	a.logDebug("chooseFunction schema provided for %s", functionName)
-	fmt.Fprintf(a.output, "Provided schema for function %q.\n", functionName)
+	fmt.Fprintf(a.output, "> Provided schema for function %q.\n", functionName)
 	return nil
 }
 
@@ -1308,7 +1354,7 @@ func (a *App) respondChooseFunctionError(ctx context.Context, call *llm.ToolCall
 	if call != nil && call.Respond != nil {
 		_ = call.Respond(ctx, llm.ToolResult{Content: message, IsError: true})
 	}
-	fmt.Fprintf(a.errOutput, "chooseFunction error: %s\n", message)
+	fmt.Fprintf(a.errOutput, "> chooseFunction error: %s\n", message)
 	a.logError("chooseFunction error: %s", message)
 	return nil
 }
@@ -1358,16 +1404,25 @@ func (a *App) leaveResponding() {
 
 func (a *App) handleInterrupt() {
 	a.modeMu.Lock()
-	defer a.modeMu.Unlock()
+	mode := a.mode
+	cancel := a.cancelCurrent
+	a.modeMu.Unlock()
 
-	switch a.mode {
+	switch mode {
 	case modeResponding:
-		if a.cancelCurrent != nil {
-			a.cancelCurrent()
+		if cancel != nil {
+			cancel()
 		}
 	case modeInput:
-		a.exitRequested = true
+		a.printCtrlDExitGuide()
 	}
+}
+
+func (a *App) printCtrlDExitGuide() {
+	if a.output == nil {
+		return
+	}
+	fmt.Fprintf(a.output, "\r\n%s\r\n", ctrlDExitGuide)
 }
 
 func (a *App) shouldExit() bool {

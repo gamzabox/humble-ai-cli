@@ -527,3 +527,44 @@ FUNCTIONS:
 - BPE 계열의 tokenizer 를 사용해 token 을 측정 할 것
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# CTRL+D 를 통한 프로그램 종료
+- CTRL+C 는 기존과 같이 task interrunpt 만 처리하고 프로그램은 종료하지 않음
+- 이제 프로그램 종료는 CTRL+D 를 누르는 것으로 변경
+- 입력 대기중 CTRL+C 를 누를 경우 프로그램 종료는 CTRL+D 를 누르를 것을 가이드 메시지로 보여줌
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# 상하 방향키를 통한 입력 기록 Navigation 기능 추가
+- 상 방향키를 누르면 이전에 입력했던 내용이 입력되고, 누를때 마다 단계적으로 이전 입력 내용을 입력해줌
+- 하 방향키를 누르면 최근 입력 내용으로 되돌아 옴
+- 대화를 입력 중 상 방향키를 눌러 이전 입력되더라고 다시 하 방향키를 누르면 입력 중이던 내용이 다시 입력 됨
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# mcp 설정에 env 가 적용 되지 않는 문제 수정
+- mcp-servers.json 에 설정된 mcp server 들에 대한 env 설정이 적용 되지 않음
+- env 의 값들은 key value 로 해당 mcp server 실행시 환경 변수로 적용 되어야 함
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# git tag 와 ldflags 를 이용한 버전 삽입 및 build.sh 스크립트 구현
+- go build -ldflags 를 이용해 최근 git tag (예: v1.0.0) 를 version 변수에, 빌드시간을 date 변수에 삽입하여 build 수행
+- version 의 default 값은 dev, date 의 기본 값은 unknown 으로 설정
+- 이렇게 build 를 수행하는 build.sh 스크립트 구현
+- build 타겟은 windows(amd64, arm64), 와 linux
+  - output file명은 linux: humble-ai-cli, windows amd64: humble-ai-cli_amd64.exe, windows arm64: humble-ai-cli_arm64.exe
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# 실행시 간단 가이드 출력
+- 다음과 같이 출력
+- version 은 코드상에 저장된 version 변수에서 읽어서 출력
+```
+Humble AI CLI version 1.0.0
+- Use /help for detailed commands.
+- Press CTRL+C to stop, CTRL+D to exit.
+```
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
