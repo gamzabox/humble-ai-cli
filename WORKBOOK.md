@@ -541,3 +541,9 @@ FUNCTIONS:
 - 대화를 입력 중 상 방향키를 눌러 이전 입력되더라고 다시 하 방향키를 누르면 입력 중이던 내용이 다시 입력 됨
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# mcp 설정에 env 가 적용 되지 않는 문제 수정
+- mcp-servers.json 에 설정된 mcp server 들에 대한 env 설정이 적용 되지 않음
+- env 의 값들은 key value 로 해당 mcp server 실행시 환경 변수로 적용 되어야 함
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

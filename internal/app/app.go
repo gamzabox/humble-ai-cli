@@ -164,12 +164,21 @@ func New(opts Options) (*App, error) {
 	}
 
 	mcpExec := opts.MCP
+	var (
+		configuredServers []mcpkg.ConfiguredServer
+		syncConfig        bool
+	)
 	if mcpExec == nil {
 		manager, err := mcpkg.NewManager(home)
 		if err != nil {
 			return nil, fmt.Errorf("initialize MCP manager: %w", err)
 		}
 		mcpExec = manager
+		syncConfig = true
+		configuredServers, err = mcpkg.ListConfiguredServers(home)
+		if err != nil {
+			return nil, err
+		}
 	}
 	servers := mcpExec.EnabledServers()
 	serverMap := make(map[string]MCPServer, len(servers))
@@ -219,9 +228,20 @@ func New(opts Options) (*App, error) {
 
 	app.setupSignals(opts.Interrupts)
 
-	if err := app.loadMCPFunctions(context.Background()); err != nil {
-		_ = app.mcp.Close()
-		return nil, err
+	if mgr, ok := mcpExec.(*mcpkg.Manager); ok {
+		mgr.SetLogger(app.logger)
+	}
+
+	if syncConfig {
+		if err := app.applyConfiguredMCPServers(context.Background(), configuredServers); err != nil {
+			_ = app.mcp.Close()
+			return nil, err
+		}
+	} else {
+		if err := app.loadMCPFunctions(context.Background()); err != nil {
+			_ = app.mcp.Close()
+			return nil, err
+		}
 	}
 
 	if err := app.initializeSystemPrompt(); err != nil {

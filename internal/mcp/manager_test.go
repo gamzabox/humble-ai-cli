@@ -141,6 +141,99 @@ func TestManagerCloseShutsDownSessions(t *testing.T) {
 	waitFor(t, time.Second, func() bool { return !handle.alive() })
 }
 
+func TestDefaultSessionDialerForwardsEnvToCommand(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	cfg := serverConfig{
+		Name:    "command-env",
+		Enabled: true,
+		Command: os.Args[0],
+		Args: []string{
+			"-test.run=TestHelperCommandServer",
+			"--",
+		},
+		Env: map[string]string{
+			"GO_WANT_HELPER_PROCESS": "1",
+			"TEST_TOKEN":             "secret-value",
+		},
+	}
+
+	holder, err := defaultSessionDialer(ctx, cfg, nil)
+	if err != nil {
+		t.Fatalf("defaultSessionDialer() error = %v", err)
+	}
+	defer holder.Close()
+
+	res, err := holder.session.CallTool(ctx, &sdk.CallToolParams{Name: "env"})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if res.Content == nil || len(res.Content) == 0 {
+		t.Fatalf("CallTool() returned empty content")
+	}
+	got := res.Content[0].(*sdk.TextContent).Text
+	if got != "secret-value" {
+		t.Fatalf("CallTool() content = %q, want %q", got, "secret-value")
+	}
+}
+
+func TestManagerReloadClosesSessionsWhenConfigChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	home := t.TempDir()
+	writeServerConfig(t, home, map[string]map[string]any{
+		"test": {
+			"enabled": true,
+			"command": "ignored",
+			"env": map[string]any{
+				"TEST_TOKEN": "one",
+			},
+		},
+	})
+
+	mgr, err := NewManager(home)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	dialer := newTestDialer(t)
+	mgr.connect = dialer.connect
+
+	if _, err := mgr.Call(ctx, "test", "echo", nil); err != nil {
+		t.Fatalf("Call() error = %v", err)
+	}
+	handle := dialer.firstHandle()
+	if handle == nil {
+		t.Fatalf("expected session handle")
+	}
+
+	writeServerConfig(t, home, map[string]map[string]any{
+		"test": {
+			"enabled": true,
+			"command": "ignored",
+			"env": map[string]any{
+				"TEST_TOKEN": "two",
+			},
+		},
+	})
+
+	if err := mgr.Reload(); err != nil {
+		t.Fatalf("Reload() error = %v", err)
+	}
+
+	waitFor(t, time.Second, func() bool { return !handle.alive() })
+
+	if _, err := mgr.Call(ctx, "test", "echo", nil); err != nil {
+		t.Fatalf("Call() after reload error = %v", err)
+	}
+	if got := dialer.connectionCount(); got != 2 {
+		t.Fatalf("expected new session after reload, got %d connections", got)
+	}
+}
+
 func TestDefaultSessionDialerConnectsSSEServer(t *testing.T) {
 	t.Parallel()
 
@@ -184,7 +277,7 @@ func TestDefaultSessionDialerConnectsSSEServer(t *testing.T) {
 		},
 	}
 
-	holder, err := defaultSessionDialer(ctx, cfg)
+	holder, err := defaultSessionDialer(ctx, cfg, nil)
 	if err != nil {
 		t.Fatalf("defaultSessionDialer() error = %v", err)
 	}
@@ -261,7 +354,7 @@ func TestDefaultSessionDialerConnectsHTTPServer(t *testing.T) {
 		},
 	}
 
-	holder, err := defaultSessionDialer(ctx, cfg)
+	holder, err := defaultSessionDialer(ctx, cfg, nil)
 	if err != nil {
 		t.Fatalf("defaultSessionDialer() error = %v", err)
 	}
@@ -311,7 +404,7 @@ func newTestDialer(t *testing.T) *testDialer {
 	return &testDialer{t: t}
 }
 
-func (d *testDialer) connect(ctx context.Context, cfg serverConfig) (*sessionHolder, error) {
+func (d *testDialer) connect(ctx context.Context, cfg serverConfig, _ DebugLogger) (*sessionHolder, error) {
 	ct, st := sdk.NewInMemoryTransports()
 
 	server := sdk.NewServer(&sdk.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
@@ -414,4 +507,30 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("condition not met within %s", timeout)
+}
+
+func TestHelperCommandServer(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	server := sdk.NewServer(&sdk.Implementation{Name: "helper", Version: "0.0.1"}, nil)
+	server.AddTool(&sdk.Tool{
+		Name:        "env",
+		Description: "returns TEST_TOKEN env",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		value := os.Getenv("TEST_TOKEN")
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: value},
+			},
+		}, nil
+	})
+
+	if err := server.Run(context.Background(), &sdk.StdioTransport{}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	os.Exit(0)
 }

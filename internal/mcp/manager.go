@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -86,7 +87,11 @@ func (cfg serverConfig) connectionKind() (string, error) {
 	}
 }
 
-type sessionDialer func(context.Context, serverConfig) (*sessionHolder, error)
+type DebugLogger interface {
+	Debugf(format string, args ...any)
+}
+
+type sessionDialer func(context.Context, serverConfig, DebugLogger) (*sessionHolder, error)
 
 // Manager loads server configurations and executes MCP tool calls.
 type Manager struct {
@@ -95,6 +100,7 @@ type Manager struct {
 	servers  map[string]serverConfig
 	sessions map[string]*sessionHolder
 	connect  sessionDialer
+	logger   DebugLogger
 }
 
 // NewManager creates a Manager rooted at the provided home directory.
@@ -226,10 +232,18 @@ func (m *Manager) Reload() error {
 	}
 
 	m.mu.Lock()
+	prev := m.servers
 	toClose := make([]*sessionHolder, 0)
 	for name, holder := range m.sessions {
 		cfg, ok := servers[name]
 		if !ok || !cfg.Enabled {
+			if holder != nil {
+				toClose = append(toClose, holder)
+			}
+			delete(m.sessions, name)
+			continue
+		}
+		if prevCfg, ok := prev[name]; !ok || !equivalentServerConfig(prevCfg, cfg) {
 			if holder != nil {
 				toClose = append(toClose, holder)
 			}
@@ -268,13 +282,14 @@ func (m *Manager) ensureSession(ctx context.Context, name string) (*sessionHolde
 		stale = holder
 	}
 	dial := m.connect
+	logger := m.logger
 	m.mu.Unlock()
 
 	if stale != nil {
 		_ = stale.Close()
 	}
 
-	newHolder, err := dial(ctx, cfg)
+	newHolder, err := dial(ctx, cfg, logger)
 	if err != nil {
 		return nil, fmt.Errorf("connect MCP server %q: %w", name, err)
 	}
@@ -333,7 +348,7 @@ func (m *Manager) fetchTools(ctx context.Context, session *sdk.ClientSession) ([
 	return out, nil
 }
 
-func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder, error) {
+func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLogger) (*sessionHolder, error) {
 	client := sdk.NewClient(&sdk.Implementation{
 		Name:    "humble-ai-cli",
 		Version: "0.1.0",
@@ -348,6 +363,9 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig) (*sessionHolder
 	case transportCommand:
 		cmd := exec.Command(cfg.Command, cfg.Args...)
 		if env := envList(cfg.Env); len(env) > 0 {
+			if logger != nil {
+				logger.Debugf("MCP server %s env: %v", cfg.Name, env)
+			}
 			cmd.Env = append(os.Environ(), env...)
 		}
 		transport := &sdk.CommandTransport{Command: cmd}
@@ -714,6 +732,19 @@ func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
 	return cfg, nil
 }
 
+func equivalentServerConfig(a, b serverConfig) bool {
+	if a.Command != b.Command || a.URL != b.URL || a.Transport != b.Transport {
+		return false
+	}
+	if !slices.Equal(a.Args, b.Args) {
+		return false
+	}
+	if !stringMapEqual(a.Env, b.Env) {
+		return false
+	}
+	return true
+}
+
 func cloneStringMap(src map[string]string) map[string]string {
 	if len(src) == 0 {
 		return nil
@@ -730,6 +761,23 @@ func cloneStringMap(src map[string]string) map[string]string {
 		return nil
 	}
 	return dst
+}
+
+func stringMapEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
+		}
+	}
+	for key := range b {
+		if _, ok := a[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func envList(env map[string]string) []string {
@@ -817,4 +865,9 @@ func convertResult(res *sdk.CallToolResult) (llm.ToolResult, error) {
 		Content: builder.String(),
 		IsError: res.IsError,
 	}, nil
+}
+func (m *Manager) SetLogger(logger DebugLogger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logger = logger
 }
