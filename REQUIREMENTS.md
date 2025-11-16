@@ -208,9 +208,11 @@ Ask minimal questions required to make the next legitimate function call.
 ## MCP Server 호출 기능
 - MCP Server 설정은 $HOME/.humble-ai-cli/mcp-servers.json 단일 파일에서 관리하며, JSON 구조는 다음을 따른다.
   - 루트에 `mcpServers` 오브젝트를 두고 key 를 MCP 서버 이름으로 사용한다.
-  - 각 서버 항목은 `description`, `enabled`(기본값 true), `command`, `args`, `env`, `url`, `transport` 필드를 지원한다.
-  - command 기반 서버는 `command` 와 선택적 `args`, `env`(프로세스 환경 변수)를 지정한다.
-  - 원격 서버는 `url` 을 지정하고, `transport` 로 `sse`(기본값) 또는 `http`(streamable HTTP) 를 선택할 수 있다.
+  - 각 서버 항목은 `description`, `enabled`(기본값 true), `command`, `args`, `env`, `url`, `type` 필드를 지원한다.
+  - `type` 에는 `stdio`, `sse`, `streamable-http` 값을 사용할 수 있다.
+  - command 기반 서버는 `command` 와 선택적 `args`, `env`(프로세스 환경 변수)를 지정하고, `type` 은 생략하거나 `stdio` 로 지정한다.
+  - 원격 서버는 `url` 을 지정하고, `type` 에 `sse` 또는 `streamable-http` 를 설정해야 한다. `command` 와 `url` 을 모두 설정한 경우 `type` 값에 따라 사용할 전송 방식을 선택한다(`stdio` → command, `sse`/`streamable-http` → url).
+  - 원격 서버의 `env` 항목은 HTTP 헤더로 전송되어 토큰 등 인증 정보를 전달한다. `sse` 로 설정했지만 서버가 SSE `endpoint` 이벤트를 제공하지 않으면 CLI 가 자동으로 streamable HTTP 로 재시도한다.
   - 원격 서버의 `env` 항목은 HTTP 헤더로 전송되어 토큰 등 인증 정보를 전달한다.
   - `command` 와 `url` 중 하나는 반드시 설정되어야 하며, 동시에 둘 다 설정하면 안 된다.
 - MCP Server 설정에는 enable/disable 을 설정 할 수 있고 enable 된 MCP Server 만 initialize 하고 호출 할 수 있음

@@ -208,3 +208,14 @@
 - [ ] 프로그램 시작 시 안내 메시지를 출력하는 테스트를 먼저 작성한다.
 - [ ] 안내 메시지 출력 기능을 구현한다.
 - [ ] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Streamable HTTP MCP 연결 실패 수정
+- [x] streamable HTTP MCP 서버 초기화 실패 현상을 재현하는 테스트를 작성한다.
+- [x] SSE 연결 실패 시 HTTP 연동으로 자동 전환하는 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP Server Type 필드 지원
+- [x] MCP server `type` 필드 요구사항을 REQUIREMENTS.md/README.md/TASKS.md 에 반영한다.
+- [x] `type` 필드 조합을 검증하는 테스트를 먼저 작성한다.
+- [x] Manager 구성 로직을 수정해 stdio/sse/streamable-http 타입과 URL/command 우선순위를 처리한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

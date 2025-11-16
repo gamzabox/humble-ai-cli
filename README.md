@@ -77,7 +77,7 @@ Set `toolCallMode` to `auto` to automatically run approved MCP tool calls withou
     "remote-sse": {
       "description": "Hosted SSE tool endpoint.",
       "url": "https://your-server.example.com/mcp/sse",
-      "transport": "sse",
+      "type": "sse",
       "env": {
         "Authorization": "Bearer token"
       }
@@ -85,13 +85,17 @@ Set `toolCallMode` to `auto` to automatically run approved MCP tool calls withou
     "remote-http": {
       "description": "Streamable HTTP endpoint.",
       "url": "https://your-server.example.com/mcp",
-      "transport": "http"
+      "type": "streamable-http"
     }
   }
 }
 ```
 - `command` servers spawn a local process (passing `args` and `env`).
-- `url` servers connect to remote MCP servers via SSE (`transport: "sse"`, default) or streamable HTTP (`transport: "http"`). For remote servers, `env` entries are sent as HTTP headers.
+- `type` controls how the CLI connects:
+  - Allowed values: `stdio`, `sse`, `streamable-http`.
+  - If only `command` is provided you can omit `type` (defaults to `stdio`), but if you set it explicitly it must be `stdio`.
+  - If a `url` is provided you must set `type`. Use `sse` or `streamable-http`. When both `command` and `url` exist, `type` decides which transport is used (`stdio` → command, `sse`/`streamable-http` → URL).
+- For remote servers, `env` entries are sent as HTTP headers. SSE endpoints that never emit the required `endpoint` event are automatically retried using the streamable HTTP protocol, so existing configs remain resilient.
 - When the LLM requests a tool call, the CLI prints the server name and description. In `manual` mode it then asks `Call now? (Y/N)`; in `auto` mode it executes immediately after printing the summary. Toggle the behaviour with `/set-tool-mode`.
 - On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
 - Use `/toggle-mcp` inside the CLI to quickly enable or disable specific MCP servers without manually editing the JSON file.
