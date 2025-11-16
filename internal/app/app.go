@@ -385,7 +385,6 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"# 3) Function Call Protocol\n" +
 		"- One message = one function call JSON only.\n" +
 		"- Do NOT combine multiple calls in the same message.\n" +
-		"- Hyphen `-` and underscore `_` are different characters. NEVER interchange them.\n" +
 		"- Review previous calls to avoid duplication.\n\n" +
 		"---\n\n" +
 		"# 4) Error Handling\n" +
