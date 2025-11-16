@@ -39,12 +39,6 @@ func TestToolContextPromptIncludesFunctions(t *testing.T) {
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}\n\n## Example\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}") {
-		t.Fatalf("expected minified functionCall examples, got %q", prompt)
-	}
-	if strings.Contains(prompt, "\n{\n  \"functionCall\"") {
-		t.Fatalf("expected functionCall JSON to be minified, got %q", prompt)
-	}
 }
 
 func TestToolContextPromptShowsFallbackNotice(t *testing.T) {
@@ -56,8 +50,5 @@ func TestToolContextPromptShowsFallbackNotice(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
-	}
-	if strings.Contains(prompt, "\n{\n  \"functionCall\"") {
-		t.Fatalf("expected functionCall JSON to be minified in fallback prompt, got %q", prompt)
 	}
 }

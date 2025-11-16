@@ -640,9 +640,6 @@ func TestAppRespondsWithSchemaForChooseFunctionCall(t *testing.T) {
 		if res.IsError {
 			t.Fatalf("expected schema response without error, got: %+v", res)
 		}
-		if strings.Contains(res.Content, "\n") {
-			t.Fatalf("expected minified JSON schema response, got: %q", res.Content)
-		}
 		var parsed struct {
 			FunctionName string         `json:"functionName"`
 			InputSchema  map[string]any `json:"inputSchema"`
@@ -1201,12 +1198,6 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	}
 	if !strings.Contains(content, "## Choose Function Call Example") {
 		t.Fatalf("expected default prompt to include choose function example, got:\n%s", content)
-	}
-	if !strings.Contains(content, "{\"chooseFunction\":{\"functionName\":\"chooseFunction\",\"reason\":\"Need to perform the awesome action\"}}") {
-		t.Fatalf("expected chooseFunction example JSON to be minified, got:\n%s", content)
-	}
-	if strings.Contains(content, "\n  \"chooseFunction\"") {
-		t.Fatalf("expected no pretty-printed chooseFunction JSON block, got:\n%s", content)
 	}
 	if !strings.Contains(content, "# 6) Asking for Missing Information") {
 		t.Fatalf("expected default prompt to include missing information heading, got:\n%s", content)

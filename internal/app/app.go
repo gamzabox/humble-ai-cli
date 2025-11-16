@@ -380,7 +380,12 @@ func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFun
 		"3. Create a function call using the schema and required properties.\n" +
 		"4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.\n\n" +
 		"## Choose Function Call Example\n" +
-		"{\"chooseFunction\":{\"functionName\":\"chooseFunction\",\"reason\":\"Need to perform the awesome action\"}}\n\n" +
+		"{\n" +
+		"  \"chooseFunction\": {\n" +
+		"    \"functionName\": \"chooseFunction\",\n" +
+		"    \"reason\": \"Need to perform the awesome action\"\n" +
+		"  }\n" +
+		"}\n\n" +
 		"---\n\n" +
 		"# 3) Function Call Protocol\n" +
 		"- One message = one function call JSON only.\n" +
@@ -1140,7 +1145,7 @@ func toolContextPrompt(defs []llm.ToolDefinition) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}\n\n## Example\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}\n"
+const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
 
 func (a *App) functionDescription(server, method string) string {
 	a.mcpMu.RLock()
@@ -1328,7 +1333,7 @@ func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) 
 		"inputSchema":  schema,
 	}
 
-	data, err := json.Marshal(payload)
+	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return a.respondChooseFunctionError(ctx, call, fmt.Sprintf("failed to encode schema: %v", err))
 	}
