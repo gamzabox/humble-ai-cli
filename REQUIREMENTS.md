@@ -8,6 +8,7 @@
 - MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
+- chooseFunction 호출 예제, functionCall schema 예제, chooseFunction 응답(inputSchema 포함) 등 모든 JSON 데이터는 context 에 포함되기 전에 반드시 JSON minify(단일 라인, 불필요한 공백 제거) 된 형태여야 한다.
 - 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
 
 ## Build & Release

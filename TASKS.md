@@ -219,3 +219,9 @@
 - [x] `type` 필드 조합을 검증하는 테스트를 먼저 작성한다.
 - [x] Manager 구성 로직을 수정해 stdio/sse/streamable-http 타입과 URL/command 우선순위를 처리한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# JSON Context Minify
+- [x] REQUIREMENTS.md 에 JSON minify 요구사항을 반영하고 영향 범위를 정리한다.
+- [x] ChooseFunction/inputSchema/FunctionCall JSON minify 동작을 보장하는 테스트를 추가하거나 수정한다.
+- [x] 구현을 수정해 context 에 포함되는 관련 JSON 이 모두 minify 되도록 한다.
+- [x] `go test ./...` 를 실행해 전체 테스트가 통과하는지 확인한다.

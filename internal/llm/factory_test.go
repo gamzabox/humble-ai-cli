@@ -54,7 +54,7 @@ func testNoToolPrompt() string {
 	return "# Connected Tools\n\n**NO FUNCTION CONNECTED**\n" + testFunctionCallSchemaBlock
 }
 
-const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
+const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}\n\n## Example\n{\"functionCall\":{\"server\":\"context7\",\"name\":\"context7__resolve-library-id\",\"arguments\":{\"libraryName\":\"golang mcp sdk\"},\"reason\":\"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"}}\n"
 
 func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
 	t.Parallel()

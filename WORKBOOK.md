@@ -568,3 +568,11 @@ Humble AI CLI version 1.0.0
 ```
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# 모든 JSON data 는 JSON minify 수행 후 context 에 설정 하도록 수정
+- ChooseFunction JSON
+- inputSchema JSON
+- FunctionCall JSON
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
