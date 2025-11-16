@@ -554,7 +554,7 @@ func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
 	if strings.Contains(got, "Call now?") {
 		t.Fatalf("auto mode should not prompt for confirmation, got:\n%s", got)
 	}
-	if !strings.Contains(got, "MCP call completed.") {
+	if !strings.Contains(got, "> MCP call completed.") {
 		t.Fatalf("expected call completion message, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Final answer: 5") {
@@ -1370,7 +1370,7 @@ func TestAppHandlesMCPToolRequests(t *testing.T) {
 	if !strings.Contains(got, "Tool: add") {
 		t.Fatalf("expected output to include tool name, got:\n%s", got)
 	}
-	if !strings.Contains(got, "Arguments:") || !strings.Contains(got, "  a: 2") || !strings.Contains(got, "  b: 3") {
+	if !strings.Contains(got, "Arguments:") || !strings.Contains(got, "  - a: 2") || !strings.Contains(got, "  - b: 3") {
 		t.Fatalf("expected output to list arguments, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Final answer: 5") {

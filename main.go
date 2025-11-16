@@ -15,7 +15,7 @@ import (
 func main() {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to determine home directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> failed to determine home directory: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -36,12 +36,12 @@ func main() {
 
 	instance, err := app.New(options)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize application: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> failed to initialize application: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := instance.Run(context.Background()); err != nil {
-		fmt.Fprintf(os.Stderr, "application error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "> application error: %v\n", err)
 		os.Exit(1)
 	}
 }
