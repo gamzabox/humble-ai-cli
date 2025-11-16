@@ -149,6 +149,12 @@ Ask minimal questions required to make the next legitimate function call.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.
 - 모든 LLM 호출 시 `temperature` 파라미터는 0.1 로 고정해 전달한다.
 - stream true 로 LLM 으로 받은 답변을 순차적으로 화면에 출력 한다.
+- 프로그램 실행 직후 CLI 는 현재 buildinfo.Version 값을 포함해 아래 순서대로 3줄 안내 메시지를 항상 출력한다.
+  ```
+  Humble AI CLI version <version>
+  - Use /help for detailed commands.
+  - Press CTRL+C to stop, CTRL+D to exit.
+  ```
 - 현재 활성화된 model 이 없는 상태에서 질문을 입력하면 /set-model 커맨트를 통해 model 을 선택하도록 가이드 하고, config.json 에 설정된 model 이 없을경우 config.json 에 model 설정을 추가 하라고 가이드 한다.
 - 프로그램 실행시 새로운 세션을 메모리상에서만 생성하고 파일로 저장하지 않는다. 대화 세션의 파일 저장은 최초 LLM 으로 부터 답변을 받은 시점 부터 이다.
 - 질문을 입력하면 우선 "Waiting for response..." 를 출력한다.

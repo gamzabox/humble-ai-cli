@@ -208,6 +208,11 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("initialize context chunker: %w", err)
 	}
 
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
+
 	app := &App{
 		store:          opts.Store,
 		factory:        opts.Factory,
@@ -216,7 +221,7 @@ func New(opts Options) (*App, error) {
 		historyRoot:    historyRoot,
 		homeDir:        home,
 		clock:          clock,
-		version:        opts.Version,
+		version:        version,
 		buildDate:      opts.BuildDate,
 		systemPrompt:   "",
 		logger:         logger,
@@ -440,6 +445,8 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 
+	a.printStartupGuide()
+
 	for {
 		if a.shouldExit() {
 			return nil
@@ -480,6 +487,17 @@ func (a *App) Run(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+func (a *App) printStartupGuide() {
+	if a.output == nil {
+		return
+	}
+	version := a.version
+	if version == "" {
+		version = "dev"
+	}
+	fmt.Fprintf(a.output, "Humble AI CLI version %s\n- Use /help for detailed commands.\n- Press CTRL+C to stop, CTRL+D to exit.\n", version)
 }
 
 func (a *App) readLine(prompt string) (string, error) {

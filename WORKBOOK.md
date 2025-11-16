@@ -562,7 +562,7 @@ FUNCTIONS:
 - 다음과 같이 출력
 - version 은 코드상에 저장된 version 변수에서 읽어서 출력
 ```
-Humble AI CLI v1.0.0
+Humble AI CLI version 1.0.0
 - Use /help for detailed commands.
 - Press CTRL+C to stop, CTRL+D to exit.
 ```
