@@ -368,9 +368,6 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLog
 	case connectionTypeStdio:
 		cmd := exec.Command(cfg.Command, cfg.Args...)
 		if env := envList(cfg.Env); len(env) > 0 {
-			if logger != nil {
-				logger.Debugf("MCP server %s env: %v", cfg.Name, env)
-			}
 			cmd.Env = append(os.Environ(), env...)
 		}
 		transport := &sdk.CommandTransport{Command: cmd}
