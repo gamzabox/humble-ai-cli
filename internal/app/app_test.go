@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkoukk/tiktoken-go"
+
 	"github.com/gamzabox/humble-ai-cli/internal/app"
 	"github.com/gamzabox/humble-ai-cli/internal/config"
 	"github.com/gamzabox/humble-ai-cli/internal/llm"
@@ -518,6 +520,181 @@ func TestAppToolCallAutoModeSkipsPrompt(t *testing.T) {
 	}
 }
 
+func TestAppRespondsWithSchemaForChooseFunctionCall(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server: "route-intent",
+			Method: "chooseFunction",
+			Arguments: map[string]any{
+				"functionName": "calculator__add",
+			},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Adds numbers via MCP."},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{
+					Name:        "add",
+					Description: "Add two numbers.",
+					Parameters: map[string]any{
+						"$schema": "http://json-schema.org/draft-07/schema#",
+						"type":    "object",
+						"properties": map[string]any{
+							"a": map[string]any{"type": "number"},
+							"b": map[string]any{"type": "number"},
+						},
+						"required": []any{"a", "b"},
+					},
+				},
+			},
+		},
+	}
+
+	input := strings.NewReader("Please add\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.IsError {
+			t.Fatalf("expected schema response without error, got: %+v", res)
+		}
+		var parsed struct {
+			FunctionName string         `json:"functionName"`
+			InputSchema  map[string]any `json:"inputSchema"`
+		}
+		if err := json.Unmarshal([]byte(res.Content), &parsed); err != nil {
+			t.Fatalf("failed to parse schema payload: %v\ncontent: %s", err, res.Content)
+		}
+		if parsed.FunctionName != "calculator__add" {
+			t.Fatalf("expected functionName calculator__add, got %q", parsed.FunctionName)
+		}
+		props, ok := parsed.InputSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected properties in schema, got %v", parsed.InputSchema)
+		}
+		if _, ok := props["a"]; !ok {
+			t.Fatalf("expected property a in schema: %v", props)
+		}
+		if _, ok := props["b"]; !ok {
+			t.Fatalf("expected property b in schema: %v", props)
+		}
+	default:
+		t.Fatalf("expected chooseFunction result to be delivered")
+	}
+
+	if len(mcpExec.Calls()) != 0 {
+		t.Fatalf("expected no MCP calls when only requesting schema")
+	}
+}
+
+func TestAppChooseFunctionErrorWhenFunctionMissing(t *testing.T) {
+	home := t.TempDir()
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk", Active: true},
+			},
+		},
+	}
+
+	resultCh := make(chan llm.ToolResult, 1)
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server: "route-intent",
+			Method: "chooseFunction",
+			Arguments: map[string]any{
+				"functionName": "missing__tool",
+			},
+		},
+		onResponded: func(res llm.ToolResult) {
+			resultCh <- res
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{},
+		toolset: map[string][]app.MCPFunction{},
+	}
+
+	input := strings.NewReader("Please add\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	select {
+	case res := <-resultCh:
+		if !res.IsError {
+			t.Fatalf("expected error response for missing tool, got %+v", res)
+		}
+		if !strings.Contains(res.Content, "missing__tool") {
+			t.Fatalf("expected error content to mention missing tool, got %q", res.Content)
+		}
+	default:
+		t.Fatalf("expected chooseFunction error result")
+	}
+}
+
 func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
@@ -631,6 +808,95 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 }
 
+func TestAppChunksOverlongUserContext(t *testing.T) {
+	t.Parallel()
+
+	const chunkLimit = 1500
+
+	encoder, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load tokenizer: %v", err)
+	}
+
+	longUserInput := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
+	expectedUserInput := strings.TrimSpace(longUserInput)
+	if tokenCount := len(encoder.Encode(expectedUserInput, nil, nil)); tokenCount <= chunkLimit {
+		t.Fatalf("test input does not exceed chunk limit, got %d tokens", tokenCount)
+	}
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader(longUserInput + "\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected a single request, got %d", len(requests))
+	}
+
+	req := requests[0]
+	if len(req.Messages) < 3 {
+		t.Fatalf("expected assistant prompt plus chunked user messages, got %d messages", len(req.Messages))
+	}
+
+	var reconstructed strings.Builder
+	userChunks := 0
+	for _, msg := range req.Messages {
+		if msg.Role != "user" {
+			continue
+		}
+		userChunks++
+		reconstructed.WriteString(msg.Content)
+		if tokenCount := len(encoder.Encode(msg.Content, nil, nil)); tokenCount > chunkLimit {
+			t.Fatalf("chunk exceeds token limit: %d", tokenCount)
+		}
+	}
+
+	if userChunks < 2 {
+		t.Fatalf("expected multiple user chunks, got %d", userChunks)
+	}
+
+	if reconstructed.String() != expectedUserInput {
+		idx := firstDifference(reconstructed.String(), expectedUserInput)
+		t.Fatalf("reconstructed content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(reconstructed.String()), len(expectedUserInput))
+	}
+}
+
 func TestAppNewCommandStartsFreshSession(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
@@ -685,8 +951,14 @@ func TestAppNewCommandStartsFreshSession(t *testing.T) {
 		t.Fatalf("expected 2 streamed requests, got %d", len(requests))
 	}
 	for i, req := range requests {
-		if len(req.Messages) != 1 {
-			t.Fatalf("expected request %d to contain 1 message, got %d", i, len(req.Messages))
+		if len(req.Messages) != 2 {
+			t.Fatalf("expected request %d to contain 2 messages, got %d", i, len(req.Messages))
+		}
+		if req.Messages[0].Role != "assistant" || !strings.Contains(req.Messages[0].Content, "# Connected Tools") {
+			t.Fatalf("expected assistant tool context in request %d, got %#v", i, req.Messages[0])
+		}
+		if req.Messages[1].Role != "user" {
+			t.Fatalf("expected user prompt as second message in request %d, got %#v", i, req.Messages[1])
 		}
 	}
 
@@ -870,20 +1142,26 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	}
 
 	content := string(bytes.TrimSpace(data))
-	if !strings.Contains(content, "You are a **tool-enabled AI Agent**") {
-		t.Fatalf("expected default prompt to mention tool-enabled AI agent, got:\n%s", content)
+	if !strings.Contains(content, "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.") {
+		t.Fatalf("expected default prompt to mention humble AI agent guidance, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## **1) Core Rules**") {
-		t.Fatalf("expected default prompt to include core rules heading, got:\n%s", content)
+	if !strings.Contains(content, "# 1) Core Behavior Rules") {
+		t.Fatalf("expected default prompt to include core behavior rules heading, got:\n%s", content)
 	}
-	if !strings.Contains(content, "If a user request is determined to require a tool call") {
-		t.Fatalf("expected default prompt to include tool selection guidance, got:\n%s", content)
+	if !strings.Contains(content, "# 2) Function Selection Flow (chooseFunction MUST be used)") {
+		t.Fatalf("expected default prompt to describe chooseFunction flow, got:\n%s", content)
 	}
-	if !strings.Contains(content, "## **5) Asking the User for Missing Information**") {
-		t.Fatalf("expected default prompt to include missing information section, got:\n%s", content)
+	if !strings.Contains(content, "Before calling EACH MCP function:") {
+		t.Fatalf("expected default prompt to emphasize each MCP function, got:\n%s", content)
 	}
-	if !strings.Contains(content, "Ask minimal questions required to move forward.") {
-		t.Fatalf("expected default prompt to end with minimal question guidance, got:\n%s", content)
+	if !strings.Contains(content, "## Choose Function Call Example") {
+		t.Fatalf("expected default prompt to include choose function example, got:\n%s", content)
+	}
+	if !strings.Contains(content, "# 6) Asking for Missing Information") {
+		t.Fatalf("expected default prompt to include missing information heading, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Ask minimal questions required to make the next legitimate function call.") {
+		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", content)
 	}
 	// Running once should not overwrite existing content.
 	custom := []byte("custom prompt")
@@ -904,6 +1182,22 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if !bytes.Equal(after, custom) {
 		t.Fatalf("expected prompt to remain unchanged on subsequent init")
 	}
+}
+
+func firstDifference(a, b string) int {
+	limit := len(a)
+	if len(b) < limit {
+		limit = len(b)
+	}
+	for i := 0; i < limit; i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	if len(a) != len(b) {
+		return limit
+	}
+	return -1
 }
 
 func TestAppHandlesMCPToolRequests(t *testing.T) {

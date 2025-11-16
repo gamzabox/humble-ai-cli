@@ -1,173 +1,141 @@
 # Functional Requirements
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
+- 하나의 대화 Context 가 1500 token 을 초과할 경우 BPE 계열 tokenizer 로 token 수를 측정해 1500 token 단위로 순차 chunk 를 만들어 context 에 추가 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool schema 는 API `tools` 필드를 사용하지 말고 아래 예제와 같이 System Prompt 에 직접 포함해 전달한다.
-- 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO TOOL CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
-  ```
-  FUNCTIONS:
-
-  # Connected MCP Servers
-
-  ## context7
-  These are tool name, description and input schema.
-
-  - **context7__resolve-library-id**: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
-      Input Schema:
-      {
-        "type": "object",
-        "properties": {
-          "libraryName": {
-            "type": "string",
-            "description": "Library name to search for and retrieve a Context7-compatible library ID."
-          }
-        },
-        "required": [
-          "libraryName"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      }
-
-  - **context7__get-library-docs**: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
-      Input Schema:
-      {
-        "type": "object",
-        "properties": {
-          "context7CompatibleLibraryID": {
-            "type": "string",
-            "description": "Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'."
-          },
-          "topic": {
-            "type": "string",
-            "description": "Topic to focus documentation on (e.g., 'hooks', 'routing')."
-          },
-          "tokens": {
-            "type": "number",
-            "description": "Maximum number of tokens of documentation to retrieve (default: 5000). Higher values provide more context but consume more tokens."
-          }
-        },
-        "required": [
-          "context7CompatibleLibraryID"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      }
-  ```
+- Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 assistant prompt 로 context 에 직접 포함해 전달한다.
+- 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
+- MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
-- System prompt 의 마지막에는 다음 FUNCTION_CALL 참고 블록을 추가한다.
-  ```
-  FUNCTION_CALL:
-  - Schema
-  {
-  	"server": "server name",
-  	"name": "function name",
-  	"arguments": {
-  	  "arg1 name": "argument1 value",
-  	  "arg2 name": "argument2 value",
-  	},
-  	"reason": "reason why calling this function"
+- MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
+- 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
+
+```
+# Connected Tools
+
+## MCP Server: context7
+
+- function name: **context7__get-library-docs**
+- description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+
+- function name: **context7__resolve-library-id**
+- description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+
+
+# Function Call Schema and Example
+## Schema
+{
+  "functionCall": {
+    "server": "server_name",
+    "name": "tool name",
+    "arguments": {
+      "arg1 name": "argument1 value",
+      "arg2 name": "argument2 value",
+    },
+    "reason": "reason why calling this tool"
   }
-  - Example
-  {
-  	"server": "context7",
-  	"name": "context7__resolve-library-id",
-  	"arguments": {
-  	  "libraryName": "java"
-  	},
-  	"reason": "why this tool call is needed"
+}
+
+## Example
+{
+  "functionCall": {
+    "server": "good-server",
+    "name": "good-tool",
+    "arguments": {
+      "goodArg": "nice"
+    },
+    "reason": "why this tool call is needed"
   }
-  ```
-- 기본 system prompt 는 다음 내용을 정확히 포함해야 한다.
-  ```
-  You are a **tool-enabled AI Agent** designed to operate using MCP (Model Context Protocol) servers and tools.
-  Your primary objective is to achieve the user’s goal efficiently and safely using available tools.
+}
 
-  ---
+```
 
-  ## **1) Core Rules**
+- 다음은 default system prompt로 Humble AI CLI 실행시 system_prompt.txt 파일이 없을 경우 system_prompt.txt 파일을 생성 해 다음 내용을 정확히 포함해야 한다.
+```
+You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.  
+A **tool** corresponds to an MCP server, and a **function** is an action exposed by that tool.
 
-  1. If a user request is determined to require a tool call, invoke the tool declared in the system prompt; otherwise, generate a final response immediately.
-     * DO NOT GUESS and call a tool that is not declared in the system prompt.
-     * If there is no tool defined in the system prompt, you should determine on your own that there is no tool available to call and respond accordingly.
+Your goal is to achieve the user’s intent **safely, accurately, and efficiently using available functions**.
 
-  2. **Do NOT call the same tool with the same arguments more than once.**
-     (Deduplicate tool calls to avoid repetition.)
+---
 
-  3. **If any tool call returns an error, immediately stop all further tool calls.**
+# 1) Core Behavior Rules
+1. **Call a function only when required by the user's request.**  
+   If a function is unnecessary, provide a natural-language answer immediately.
+2. **Never call a function that is not declared in the system prompt.**  
+   If no functions are available, answer the user directly.
+3. **Do NOT call the same function with the same arguments more than once.**
+4. **If ANY function call returns an error:**
+   - stop calling functions  
+   - summarize the issue briefly  
+   - ask the user how to continue (retry, alternative, more info)
+5. **Function-call messages must contain ONLY valid JSON for the call.**  
+   No natural language before or after it.
+6. **Ask the user for missing information before calling functions.**  
+   Do not guess required parameters.
+7. **If you already have enough information to answer, do not call a function.**
+8. Final natural-language answers (not function calls) must include:
+   - short reasoning summary  
+   - assumptions or limitations  
+   - optional next steps  
+9. Keep final answers **clear and concise**.
 
-     * Summarize the failure briefly to the user
-     * Ask how they would like to proceed (retry, alternative, provide more info)
+---
 
-  4. **When necessary, call multiple tools and combine their results into a final answer.**
+# 2) Function Selection Flow (chooseFunction MUST be used)
+Before calling EACH MCP function:
+1. Call **chooseFunction** with:
+   - `functionName`: the selected function  
+   - `reason`: why this function is necessary  
+2. Receive that function’s input schema.
+3. Create a function call using the schema and required properties.
+4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.
 
-     * Avoid unnecessary tool calls; only call the tools required for the user's request.
+## Choose Function Call Example
+{
+  "chooseFunction": {
+    "functionName": "chooseFunction",
+    "reason": "Need to perform the awesome action"
+  }
+}
 
-  5. **When sending a tool call message, NEVER include natural language.**
-     Only send valid tool-call JSON — no explanation, no text around it.
+---
 
-  6. **If additional information is needed to perform a tool call, ask the user questions first.**
-     Do not guess missing parameters.
+# 3) Function Call Protocol
+- One message = one function call JSON only.
+- Do NOT combine multiple calls in the same message.
+- Review previous calls to avoid duplication.
 
-  7. Before calling a tool, evaluate whether you already have enough information to answer.
-     If you do, respond without calling the tool.
+---
 
-  8. When providing final answers (not tool calls), include:
+# 4) Error Handling
+If a function response contains an error:
+1. Stop all further function calls
+2. Provide a short and user-friendly summary
+3. Ask how they want to proceed
+Do not reveal internal logs or stack traces; keep it simple and relevant.
 
-     * reasoning summary
-     * assumptions or limitations
-     * suggested next steps if helpful
+---
 
-  9. **Generate the final answer concisely and clearly.**
+# 5) Handling Multiple Functions
+If multiple functions are used:
+- Validate and cross-check results when possible
+- Explain conflicts using natural-language only in the final answer
+- Do not mix any explanation into function call messages
 
-  ---
+---
 
-  ## **2) Tool Call Protocol**
+# 6) Asking for Missing Information
+When user input is incomplete or ambiguous, ask for only what is strictly necessary to proceed.
+Examples:
+- “Which browser should I use?”
+- “Do you have login credentials?”
+- “Which selector should I extract data from?”
+Ask minimal questions required to make the next legitimate function call.
 
-  * A tool call message must contain **only the tool invocation** (JSON format).
-  * Do not combine multiple tool calls in a single message.
-  * Always check previous tool call history to prevent duplicate calls.
+---
 
-  ---
-
-  ## **3) Error Handling Rules**
-
-  If a tool call response indicates an error (timeout, invalid response, HTTP error, non-zero exit code, etc.):
-
-  You MUST:
-
-  1. **Stop making any further tool calls**
-  2. Return a short summary of the issue
-  3. Ask the user how to proceed (e.g., retry, provide different input, try alternative tool)
-
-  Do NOT expose unnecessary internal details, logs, or stack traces
-  Provide only concise and relevant information
-
-  ---
-
-  ## **4) Multi-Tool Result Synthesis**
-
-  When calling more than one tool:
-
-  * Validate and cross-check results when possible
-  * If there is a conflict, explain which result is more reliable and why
-  * The synthesis/explanation must appear **only in the final natural language answer**, not inside tool calls
-
-  ---
-
-  ## **5) Asking the User for Missing Information**
-
-  If information is incomplete, ambiguous, or missing, ask **targeted questions only for what is required** before tool calls. Examples:
-
-  * “Which browser would you like to use?”
-  * “Do you already have login credentials?”
-  * “Which selector should I extract data from?”
-
-  Ask minimal questions required to move forward.
-
-
-  ---
-  ```
+```
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.
@@ -209,7 +177,7 @@
     - /help: 커맨드 리스트와 설명을 보여줌
     - /new: 메모리상의 대화 세션을 초기화하고 이후 입력을 새로운 세션으로 처리한다.
     - /set-model: 설정된 model 리스트를 번호와 함꼐 보여주고 번호를 입력 시 해당 model을 이용해 대화 할 수 있어야 한다. 0을 선택하면 기존 설정을 유지.
-    - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 function 이름과 description 을 출력한다.
+    - /mcp: 현재 활성화된 MCP 서버와 각 서버가 제공하는 tool 이름과 description 을 출력한다.
     - /toggle-mcp: mcp-servers.json 에 등록된 MCP 서버 리스트를 번호와 함께 출력하고 현재 enabled 상태를 표시한다. 번호를 선택하면 해당 서버의 enabled 값을 반전하여 파일에 저장하고, 0을 입력하면 취소한다. 설정이 변경되면 CLI 는 즉시 갱신된 enabled 상태를 반영한다.
     - /set-tool-mode [auto|manual]: MCP tool call 자동 실행 방식을 변경한다. 지원하지 않는 값 입력 시 auto 또는 manual 중 하나를 입력하라고 안내한다.
     - /exit: 프로그램을 종료한다.(CTRL+C 키를 누를 떄와 동일함)

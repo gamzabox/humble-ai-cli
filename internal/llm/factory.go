@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/gamzabox/humble-ai-cli/internal/config"
+	"github.com/gamzabox/humble-ai-cli/internal/tokenizer"
 )
 
 // HTTPClient abstracts http.Client for testability.
@@ -26,7 +26,11 @@ type Factory struct {
 	client HTTPClient
 }
 
-const defaultTemperature = 0.1
+const (
+	defaultTemperature    = 0.1
+	routeIntentServerName = "route-intent"
+	routeIntentToolName   = "chooseFunction"
+)
 
 // NewFactory builds a Factory with optional custom HTTP client.
 func NewFactory(client HTTPClient) *Factory {
@@ -47,19 +51,29 @@ func (f *Factory) Create(model config.Model) (ChatProvider, error) {
 		if base == "" {
 			base = "https://api.openai.com/v1"
 		}
+		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
+		if err != nil {
+			return nil, fmt.Errorf("initialize tokenizer: %w", err)
+		}
 		return &openAIProvider{
 			client:  f.client,
 			baseURL: strings.TrimRight(base, "/"),
 			apiKey:  model.APIKey,
+			chunker: chunker,
 		}, nil
 	case "ollama":
 		base := model.BaseURL
 		if base == "" {
 			base = "http://localhost:11434"
 		}
+		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
+		if err != nil {
+			return nil, fmt.Errorf("initialize tokenizer: %w", err)
+		}
 		return &ollamaProvider{
 			client:  f.client,
 			baseURL: strings.TrimRight(base, "/"),
+			chunker: chunker,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", model.Provider)
@@ -73,6 +87,7 @@ type openAIProvider struct {
 	client  HTTPClient
 	baseURL string
 	apiKey  string
+	chunker *tokenizer.Chunker
 }
 
 func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
@@ -101,14 +116,14 @@ func (p *openAIProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 			}
 
 			for _, call := range result.toolCalls {
-				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
+				toolMessages, err := p.awaitToolResult(ctx, stream, definitions, call)
 				if err != nil {
 					if err != context.Canceled {
 						stream <- StreamChunk{Type: ChunkError, Err: err}
 					}
 					return
 				}
-				messages = append(messages, toolMessage)
+				messages = append(messages, toolMessages...)
 			}
 		}
 	}()
@@ -210,6 +225,16 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 
 			if choice.FinishReason == "stop" {
 				assistantCall.Content = builder.String()
+				if call, cleaned, ok := extractChooseFunctionCall(assistantCall.Content); ok {
+					assistantCall.Content = strings.TrimSpace(cleaned)
+					assistantCall.ToolCalls = []openAIToolCall{call}
+					toolRequests := []toolCallRequest{{Call: call}}
+					logResponse(toolRequests)
+					return &openAIPassResult{
+						assistantMessage: assistantCall,
+						toolCalls:        toolRequests,
+					}, nil
+				}
 				logResponse(nil)
 				return &openAIPassResult{assistantMessage: assistantCall}, nil
 			}
@@ -231,19 +256,29 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	}
 
 	assistantCall.Content = builder.String()
+	if call, cleaned, ok := extractChooseFunctionCall(assistantCall.Content); ok {
+		assistantCall.Content = strings.TrimSpace(cleaned)
+		assistantCall.ToolCalls = []openAIToolCall{call}
+		toolRequests := []toolCallRequest{{Call: call}}
+		logResponse(toolRequests)
+		return &openAIPassResult{
+			assistantMessage: assistantCall,
+			toolCalls:        toolRequests,
+		}, nil
+	}
 	logResponse(nil)
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
 
-func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) (openAIMessage, error) {
+func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) ([]openAIMessage, error) {
 	definition, ok := defs[call.Call.Function.Name]
 	if !ok {
-		return openAIMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+		return nil, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
 	}
 
 	args, err := call.arguments()
 	if err != nil {
-		return openAIMessage{}, err
+		return nil, err
 	}
 
 	resultCh := make(chan ToolResult, 1)
@@ -267,7 +302,7 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 	var result ToolResult
 	select {
 	case <-ctx.Done():
-		return openAIMessage{}, ctx.Err()
+		return nil, ctx.Err()
 	case result = <-resultCh:
 	}
 
@@ -276,13 +311,28 @@ func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- Stre
 		content = "{}"
 	}
 
-	toolMessage := openAIMessage{
-		Role:       "tool",
-		Content:    content,
-		ToolCallID: call.Call.ID,
-		Name:       definition.Name,
+	chunked := p.chunkToolContent(content)
+	messages := make([]openAIMessage, 0, len(chunked))
+	for _, part := range chunked {
+		messages = append(messages, openAIMessage{
+			Role:       "tool",
+			Content:    part,
+			ToolCallID: call.Call.ID,
+			Name:       definition.Name,
+		})
 	}
-	return toolMessage, nil
+	return messages, nil
+}
+
+func (p *openAIProvider) chunkToolContent(content string) []string {
+	if p == nil || p.chunker == nil {
+		return []string{content}
+	}
+	parts, err := p.chunker.ChunkText(content)
+	if err != nil || len(parts) == 0 {
+		return []string{content}
+	}
+	return parts
 }
 
 type openAIMessage struct {
@@ -485,6 +535,7 @@ func (r toolCallRequest) arguments() (map[string]any, error) {
 type ollamaProvider struct {
 	client  HTTPClient
 	baseURL string
+	chunker *tokenizer.Chunker
 }
 
 type ollamaMessage struct {
@@ -615,7 +666,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 			}
 
 			for _, call := range result.toolCalls {
-				toolMessage, err := p.awaitToolResult(ctx, stream, definitions, call)
+				toolMessages, err := p.awaitToolResult(ctx, stream, definitions, call)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return
@@ -623,7 +674,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 					stream <- StreamChunk{Type: ChunkError, Err: err}
 					return
 				}
-				messages = append(messages, toolMessage)
+				messages = append(messages, toolMessages...)
 			}
 		}
 	}()
@@ -683,7 +734,7 @@ func (p *ollamaProvider) streamOnce(
 	decoder := json.NewDecoder(resp.Body)
 	var (
 		builder   strings.Builder
-		toolCalls []openAIToolCall
+		toolCalls []parsedToolCall
 		assistant = ollamaMessage{Role: "assistant"}
 	)
 
@@ -725,7 +776,7 @@ func (p *ollamaProvider) streamOnce(
 		if len(chunk.Message.ToolCalls) > 0 {
 			for _, raw := range chunk.Message.ToolCalls {
 				call := raw.toOpenAIToolCall()
-				toolCalls = append(toolCalls, call)
+				toolCalls = append(toolCalls, parsedToolCall{call: call})
 			}
 		}
 
@@ -771,7 +822,7 @@ func (p *ollamaProvider) streamOnce(
 
 	requests := make([]toolCallRequest, 0, len(toolCalls))
 	for _, call := range toolCalls {
-		requests = append(requests, toolCallRequest{Call: call})
+		requests = append(requests, toolCallRequest{Call: call.call})
 	}
 	logResponse(len(toolCalls))
 
@@ -786,15 +837,15 @@ func (p *ollamaProvider) awaitToolResult(
 	stream chan<- StreamChunk,
 	definitions map[string]ToolDefinition,
 	call toolCallRequest,
-) (ollamaMessage, error) {
+) ([]ollamaMessage, error) {
 	definition, ok := definitions[call.Call.Function.Name]
 	if !ok {
-		return ollamaMessage{}, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
+		return nil, fmt.Errorf("unknown tool requested: %s", call.Call.Function.Name)
 	}
 
 	args, err := call.arguments()
 	if err != nil {
-		return ollamaMessage{}, err
+		return nil, err
 	}
 
 	resultCh := make(chan ToolResult, 1)
@@ -818,7 +869,7 @@ func (p *ollamaProvider) awaitToolResult(
 	var result ToolResult
 	select {
 	case <-ctx.Done():
-		return ollamaMessage{}, ctx.Err()
+		return nil, ctx.Err()
 	case result = <-resultCh:
 	}
 
@@ -827,11 +878,27 @@ func (p *ollamaProvider) awaitToolResult(
 		content = "{}"
 	}
 
-	return ollamaMessage{
-		Role:     "tool",
-		Content:  content,
-		ToolName: call.Call.Function.Name,
-	}, nil
+	chunked := p.chunkToolContent(content)
+	messages := make([]ollamaMessage, 0, len(chunked))
+	for _, part := range chunked {
+		messages = append(messages, ollamaMessage{
+			Role:     "tool",
+			Content:  part,
+			ToolName: call.Call.Function.Name,
+		})
+	}
+	return messages, nil
+}
+
+func (p *ollamaProvider) chunkToolContent(content string) []string {
+	if p == nil || p.chunker == nil {
+		return []string{content}
+	}
+	parts, err := p.chunker.ChunkText(content)
+	if err != nil || len(parts) == 0 {
+		return []string{content}
+	}
+	return parts
 }
 
 func buildOllamaRequest(req ChatRequest) ([]byte, error) {
@@ -841,8 +908,7 @@ func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 
 func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
-	systemPrompt := enhanceSystemPromptWithToolSchema(req.SystemPrompt, req.Tools)
-	if strings.TrimSpace(systemPrompt) != "" {
+	if systemPrompt := strings.TrimSpace(req.SystemPrompt); systemPrompt != "" {
 		messages = append(messages, ollamaMessage{
 			Role:    "system",
 			Content: systemPrompt,
@@ -857,103 +923,6 @@ func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	return messages
 }
 
-func enhanceSystemPromptWithToolSchema(prompt string, defs []ToolDefinition) string {
-	prompt = strings.TrimSpace(prompt)
-	schema := buildToolSchemaPrompt(defs)
-	if schema == "" {
-		return prompt
-	}
-	if prompt == "" {
-		return schema
-	}
-	return prompt + "\n\n" + schema
-}
-
-func buildToolSchemaPrompt(defs []ToolDefinition) string {
-	type toolEntry struct {
-		name        string
-		description string
-		parameters  map[string]any
-	}
-
-	var builder strings.Builder
-	builder.WriteString("FUNCTIONS:\n\n# Connected MCP Servers\n")
-
-	if len(defs) == 0 {
-		builder.WriteString("\n\n**NO TOOL CONNECTED**")
-		return strings.TrimRight(builder.String(), "\n")
-	}
-
-	groups := make(map[string][]toolEntry)
-	for _, def := range defs {
-		server := strings.TrimSpace(def.Server)
-		if server == "" {
-			server = "default"
-		}
-
-		params := cloneAnyMap(def.Parameters)
-		if params == nil {
-			params = defaultToolSchema()
-		}
-
-		desc := strings.TrimSpace(def.Description)
-		if desc == "" {
-			desc = "No description provided."
-		}
-
-		groups[server] = append(groups[server], toolEntry{
-			name:        def.Name,
-			description: desc,
-			parameters:  params,
-		})
-	}
-
-	serverNames := make([]string, 0, len(groups))
-	for server := range groups {
-		serverNames = append(serverNames, server)
-	}
-	sort.Strings(serverNames)
-
-	for _, server := range serverNames {
-		builder.WriteString("\n## MCP Server: ")
-		builder.WriteString(server)
-		builder.WriteString("\nThese are tool name, description and input schema.\n")
-
-		tools := groups[server]
-		sort.Slice(tools, func(i, j int) bool {
-			return tools[i].name < tools[j].name
-		})
-
-		for _, tool := range tools {
-			builder.WriteString("\n- name: **")
-			builder.WriteString(tool.name)
-			builder.WriteString("**\n")
-			builder.WriteString("- description: ")
-			builder.WriteString(tool.description)
-			builder.WriteString("\n\n")
-			builder.WriteString("    Input Schema:\n")
-
-			schemaJSON, err := json.MarshalIndent(tool.parameters, "", "  ")
-			if err != nil {
-				builder.WriteString("    {}\n\n")
-				continue
-			}
-
-			lines := strings.Split(string(schemaJSON), "\n")
-			for _, line := range lines {
-				builder.WriteString("    ")
-				builder.WriteString(line)
-				builder.WriteByte('\n')
-			}
-			builder.WriteByte('\n')
-		}
-	}
-
-	builder.WriteString("\n\nFUNCTION_CALL:\n- Schema\n{\n\t\"server\": \"server name\",\n\t\"name\": \"function name\",\n\t\"arguments\": {\n\t  \"arg1 name\": \"argument1 value\",\n\t  \"arg2 name\": \"argument2 value\",\n\t},\n\t\"reason\": \"reason why calling this function\"\n}\n- Example\n{\n\t\"server\": \"context7\",\n\t\"name\": \"context7__resolve-library-id\",\n\t\"arguments\": {\n\t  \"libraryName\": \"java\"\n\t},\n\t\"reason\": \"why this tool call is needed\"\n}")
-
-	return strings.TrimRight(builder.String(), "\n")
-}
-
 func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]byte, error) {
 	payload := ollamaRequestPayload{
 		Model:    model,
@@ -966,9 +935,14 @@ func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]
 	return json.Marshal(payload)
 }
 
-func parseManualToolCall(content string) ([]openAIToolCall, string) {
+type parsedToolCall struct {
+	call openAIToolCall
+	raw  string
+}
+
+func parseManualToolCall(content string) ([]parsedToolCall, string) {
 	cleaned := content
-	var calls []openAIToolCall
+	var calls []parsedToolCall
 
 	for {
 		blocks := findJSONBlocks(cleaned)
@@ -978,14 +952,19 @@ func parseManualToolCall(content string) ([]openAIToolCall, string) {
 
 		parsed := false
 		for _, block := range blocks {
-			call, ok := parseToolCallJSON(cleaned[block.start:block.end])
-			if !ok {
-				continue
+			segment := cleaned[block.start:block.end]
+			if call, ok := parseChooseFunctionJSON(segment); ok {
+				calls = append(calls, parsedToolCall{call: call, raw: segment})
+				cleaned = removeJSONBlock(cleaned, block.start, block.end)
+				parsed = true
+				break
 			}
-			calls = append(calls, call)
-			cleaned = removeJSONBlock(cleaned, block.start, block.end)
-			parsed = true
-			break
+			if call, ok := parseToolCallJSON(segment); ok {
+				calls = append(calls, parsedToolCall{call: call, raw: segment})
+				cleaned = removeJSONBlock(cleaned, block.start, block.end)
+				parsed = true
+				break
+			}
 		}
 
 		if !parsed {
@@ -1053,12 +1032,33 @@ func findJSONBlocks(text string) []jsonBlock {
 
 func parseToolCallJSON(raw string) (openAIToolCall, bool) {
 	var payload struct {
-		Name      string          `json:"name"`
+		Name         string `json:"name"`
+		FunctionCall struct {
+			Server    string          `json:"server"`
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+			Reason    json.RawMessage `json:"reason"`
+		} `json:"functionCall"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return openAIToolCall{}, false
 	}
+
+	if name := strings.TrimSpace(payload.FunctionCall.Name); name != "" {
+		argText := strings.TrimSpace(string(payload.FunctionCall.Arguments))
+		if argText == "" || argText == "null" {
+			argText = "{}"
+		}
+		return openAIToolCall{
+			Type: "function",
+			Function: openAIToolFunction{
+				Name:      name,
+				Arguments: argText,
+			},
+		}, true
+	}
+
 	name := strings.TrimSpace(payload.Name)
 	if name == "" {
 		return openAIToolCall{}, false
@@ -1076,6 +1076,53 @@ func parseToolCallJSON(raw string) (openAIToolCall, bool) {
 			Arguments: argText,
 		},
 	}, true
+}
+
+func parseChooseFunctionJSON(raw string) (openAIToolCall, bool) {
+	var payload struct {
+		ChooseFunction struct {
+			FunctionName string `json:"functionName"`
+			Reason       string `json:"reason"`
+		} `json:"chooseFunction"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return openAIToolCall{}, false
+	}
+	functionName := strings.TrimSpace(payload.ChooseFunction.FunctionName)
+	if functionName == "" {
+		return openAIToolCall{}, false
+	}
+
+	args := map[string]any{
+		"functionName": functionName,
+	}
+	if reason := strings.TrimSpace(payload.ChooseFunction.Reason); reason != "" {
+		args["reason"] = reason
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return openAIToolCall{}, false
+	}
+
+	return openAIToolCall{
+		ID:   fmt.Sprintf("chooseFunction-%d", time.Now().UnixNano()),
+		Type: "function",
+		Function: openAIToolFunction{
+			Name:      routeIntentToolName,
+			Arguments: string(encoded),
+		},
+	}, true
+}
+
+func extractChooseFunctionCall(content string) (openAIToolCall, string, bool) {
+	blocks := findJSONBlocks(content)
+	for _, block := range blocks {
+		if call, ok := parseChooseFunctionJSON(content[block.start:block.end]); ok {
+			cleaned := removeJSONBlock(content, block.start, block.end)
+			return call, cleaned, true
+		}
+	}
+	return openAIToolCall{}, content, false
 }
 
 func removeJSONBlock(content string, start, end int) string {
@@ -1110,14 +1157,39 @@ func trimLeadingFence(s string) string {
 	return s
 }
 
-func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]ToolDefinition) string {
+func formatOllamaToolCallContent(calls []parsedToolCall, definitions map[string]ToolDefinition) string {
 	if len(calls) == 0 {
 		return ""
 	}
 
 	payloads := make([]string, 0, len(calls))
-	for _, call := range calls {
+	for _, parsed := range calls {
+		if raw := strings.TrimSpace(parsed.raw); raw != "" {
+			payloads = append(payloads, parsed.raw)
+			continue
+		}
+
+		call := parsed.call
 		name := strings.TrimSpace(call.Function.Name)
+		rawArgs := strings.TrimSpace(call.Function.Arguments)
+
+		if name == routeIntentToolName {
+			var args map[string]any
+			if rawArgs != "" {
+				_ = json.Unmarshal([]byte(rawArgs), &args)
+			}
+			if args == nil {
+				args = map[string]any{}
+			}
+			data := map[string]any{"chooseFunction": args}
+			encoded, err := json.Marshal(data)
+			if err != nil {
+				continue
+			}
+			payloads = append(payloads, string(encoded))
+			continue
+		}
+
 		data := map[string]any{
 			"server": "",
 			"name":   name,
@@ -1130,7 +1202,6 @@ func formatOllamaToolCallContent(calls []openAIToolCall, definitions map[string]
 			}
 		}
 
-		rawArgs := strings.TrimSpace(call.Function.Arguments)
 		switch rawArgs {
 		case "":
 			data["arguments"] = map[string]any{}

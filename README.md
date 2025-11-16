@@ -5,6 +5,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 ## Features
 - Interactive REPL with streaming responses and “Thinking…” indicators.
 - Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
+- Automatically chunks context messages every 2,000 BPE tokens to avoid oversized prompts.
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
 - Supports configurable system prompts stored at `~/.humble-ai-cli/system_prompt.txt`.
 - Built-in slash commands:
@@ -12,7 +13,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/new` – start a fresh session (clears in-memory history).
   - `/set-model` – select the active model from configured entries.
   - `/set-tool-mode` – switch MCP tool calls between manual confirmation and auto execution.
-  - `/mcp` – display enabled MCP servers and the functions they expose.
+  - `/mcp` – display enabled MCP servers and the tools they expose.
   - `/toggle-mcp` – enable or disable MCP servers defined in `mcp-servers.json`.
   - `/exit` – quit the program (pressing `Ctrl+C` twice also exits; once during streaming cancels the response).
 
