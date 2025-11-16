@@ -77,6 +77,11 @@ func (b *lineBuffer) Delete() bool {
 	return true
 }
 
+func (b *lineBuffer) SetString(value string) {
+	b.runes = []rune(value)
+	b.cursor = len(b.runes)
+}
+
 func (b *lineBuffer) String() string {
 	return string(b.runes)
 }

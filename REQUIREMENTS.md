@@ -149,6 +149,7 @@ Ask minimal questions required to make the next legitimate function call.
 - 입력 모드에서 CTRL+C 를 누르면 프로그램을 종료하지 않고 `Press CTRL+D to exit the program.` 안내 메시지를 출력한 뒤 입력을 계속 기다린다.
 - 입력 대기 상태에서 CTRL+D 를 누르면 프로그램을 종료한다.
 - 프롬프트 입력 시 좌우 방향키, Home, End 키로 커서를 이동할 수 있어야 하며, 한국어/중국어/일본어 등 다국어 입력에서도 정상 동작해야 한다.
+- 입력 중 상/하 방향키로 동일 세션의 이전 입력을 탐색할 수 있어야 하며, 상 방향키는 더 과거의 입력을 순차적으로 불러오고 하 방향키는 다시 최신 입력으로 이동한다. 히스토리를 탐색하다가 하 방향키로 최신 위치로 돌아오면 탐색 시작 직전까지 작성 중이던 내용이 그대로 복원되어야 한다.
 
 ## Config
 - API 연계 정보등의 설정은 $HOME/.humble-ai-cli/config.json 파일을 사용 함
