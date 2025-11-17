@@ -56,16 +56,16 @@ func testNoToolPrompt() string {
 
 const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
 
-func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
+func TestBuildOllamaRequestEmbedsToolPromptInSystem(t *testing.T) {
 	t.Parallel()
 
 	toolPrompt := testToolPrompt("weather", "weather__get_weather", "Get the weather in a given city")
+	systemPrompt := fmt.Sprintf("%s\n\n%s", testBasePrompt(), toolPrompt)
 	req := ChatRequest{
 		Model:        "llama3.2",
 		Stream:       true,
-		SystemPrompt: testBasePrompt(),
+		SystemPrompt: systemPrompt,
 		Messages: []Message{
-			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "what is the weather in tokyo?"},
 		},
 		Tools: []ToolDefinition{
@@ -114,19 +114,11 @@ func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "Base prompt.") {
 		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
 	}
-	if strings.Contains(systemMsg.Content, "# Connected Tools") {
-		t.Fatalf("system prompt should not embed tool prompt, got %q", systemMsg.Content)
+	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
+		t.Fatalf("expected connected tools in system prompt, got %q", systemMsg.Content)
 	}
 
-	assistantMsg := payload.Messages[1]
-	if assistantMsg.Role != "assistant" {
-		t.Fatalf("expected second message to be assistant, got %s", assistantMsg.Role)
-	}
-	if assistantMsg.Content != toolPrompt {
-		t.Fatalf("assistant prompt mismatch:\nwant: %q\ngot:  %q", toolPrompt, assistantMsg.Content)
-	}
-
-	userMsg := payload.Messages[2]
+	userMsg := payload.Messages[1]
 	if userMsg.Role != "user" || userMsg.Content != "what is the weather in tokyo?" {
 		t.Fatalf("expected user message preserved, got %#v", userMsg)
 	}
@@ -144,16 +136,16 @@ func TestBuildOllamaRequestPreservesAssistantToolPrompt(t *testing.T) {
 	}
 }
 
-func TestBuildOllamaRequestPreservesNoToolConnectedPrompt(t *testing.T) {
+func TestBuildOllamaRequestEmbedsNoToolConnectedPromptInSystem(t *testing.T) {
 	t.Parallel()
 
 	toolPrompt := testNoToolPrompt()
+	systemPrompt := fmt.Sprintf("%s\n\n%s", testBasePrompt(), toolPrompt)
 	req := ChatRequest{
 		Model:        "llama3.2",
-		SystemPrompt: testBasePrompt(),
+		SystemPrompt: systemPrompt,
 		Stream:       true,
 		Messages: []Message{
-			{Role: "assistant", Content: toolPrompt},
 			{Role: "user", Content: "hello?"},
 		},
 		Tools: []ToolDefinition{testChooseFunctionDefinition()},
@@ -173,9 +165,20 @@ func TestBuildOllamaRequestPreservesNoToolConnectedPrompt(t *testing.T) {
 		t.Fatalf("expected %d messages, got %d", len(req.Messages)+1, len(payload.Messages))
 	}
 
-	assistantMsg := payload.Messages[1]
-	if assistantMsg.Content != toolPrompt {
-		t.Fatalf("expected assistant prompt to remain unchanged, got %q", assistantMsg.Content)
+	systemMsg := payload.Messages[0]
+	if !strings.Contains(systemMsg.Content, "Base prompt.") {
+		t.Fatalf("expected base prompt in system content, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
+		t.Fatalf("system prompt missing connected tools block, got %q", systemMsg.Content)
+	}
+	if !strings.Contains(systemMsg.Content, "**NO FUNCTION CONNECTED**") {
+		t.Fatalf("expected no function connected notice, got %q", systemMsg.Content)
+	}
+
+	userMsg := payload.Messages[1]
+	if userMsg.Role != "user" || userMsg.Content != "hello?" {
+		t.Fatalf("expected user message preserved, got %#v", userMsg)
 	}
 }
 

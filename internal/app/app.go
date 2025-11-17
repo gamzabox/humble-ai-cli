@@ -675,10 +675,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	toolDefs := a.availableToolDefinitions()
 	history := append([]llm.Message{}, a.messages...)
-	requestMessages := make([]llm.Message, 0, len(history)+2)
-	if contextPrompt := toolContextPrompt(toolDefs); strings.TrimSpace(contextPrompt) != "" {
-		requestMessages = append(requestMessages, llm.Message{Role: "assistant", Content: contextPrompt})
-	}
+	requestMessages := make([]llm.Message, 0, len(history)+1)
 	requestMessages = append(requestMessages, history...)
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
 
@@ -691,10 +688,19 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		}
 	}
 
+	systemPrompt := a.systemPrompt
+	if contextPrompt := toolContextPrompt(toolDefs); strings.TrimSpace(contextPrompt) != "" {
+		if strings.TrimSpace(systemPrompt) != "" {
+			systemPrompt = strings.TrimRight(systemPrompt, "\n") + "\n\n" + contextPrompt
+		} else {
+			systemPrompt = contextPrompt
+		}
+	}
+
 	req := llm.ChatRequest{
 		Model:        activeModel.Name,
 		Messages:     requestMessages,
-		SystemPrompt: a.systemPrompt,
+		SystemPrompt: systemPrompt,
 		Stream:       true,
 		Tools:        toolDefs,
 	}

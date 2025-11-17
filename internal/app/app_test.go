@@ -993,14 +993,14 @@ func TestAppNewCommandStartsFreshSession(t *testing.T) {
 		t.Fatalf("expected 2 streamed requests, got %d", len(requests))
 	}
 	for i, req := range requests {
-		if len(req.Messages) != 2 {
-			t.Fatalf("expected request %d to contain 2 messages, got %d", i, len(req.Messages))
+		if len(req.Messages) != 1 {
+			t.Fatalf("expected request %d to contain 1 message, got %d", i, len(req.Messages))
 		}
-		if req.Messages[0].Role != "assistant" || !strings.Contains(req.Messages[0].Content, "# Connected Tools") {
-			t.Fatalf("expected assistant tool context in request %d, got %#v", i, req.Messages[0])
+		if !strings.Contains(req.SystemPrompt, "# Connected Tools") {
+			t.Fatalf("expected system prompt to include connected tools in request %d, got %q", i, req.SystemPrompt)
 		}
-		if req.Messages[1].Role != "user" {
-			t.Fatalf("expected user prompt as second message in request %d, got %#v", i, req.Messages[1])
+		if req.Messages[0].Role != "user" {
+			t.Fatalf("expected user prompt as first message in request %d, got %#v", i, req.Messages[0])
 		}
 	}
 

@@ -3,12 +3,12 @@
 - 대화의 Context 를 유지 할 것
 - 하나의 대화 Context 가 1500 token 을 초과할 경우 BPE 계열 tokenizer 로 token 수를 측정해 1500 token 단위로 순차 chunk 를 만들어 context 에 추가 할 것
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
-- Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 assistant prompt 로 context 에 직접 포함해 전달한다.
+- Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 system prompt 에 직접 포함해 전달한다.
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
 - MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
-- 이 내용은 항상 system prompt 바로 다음 context 로 추가 하고 role은 assistant 로 설정 한다.
+- 이 내용은 system prompt 하단에 포함해 함께 전달한다.
 
 ## Build & Release
 - `build.sh` 스크립트를 제공해 cross-platform 빌드를 수행한다.
@@ -145,6 +145,7 @@ Ask minimal questions required to make the next legitimate function call.
 ---
 
 ```
+- System prompt 하단에는 항상 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 이어 붙여 전달한다. 연결된 MCP tool 이 없으면 `**NO FUNCTION CONNECTED**` 를 포함한다.
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.
