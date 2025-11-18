@@ -965,7 +965,7 @@ func TestAppOmitsOllamaNumCtxOptionWhenUnset(t *testing.T) {
 	}
 }
 
-func TestAppChunksOverlongUserContext(t *testing.T) {
+func TestAppDoesNotChunkUserContextWhenLimitUnset(t *testing.T) {
 	t.Parallel()
 
 	const chunkLimit = 1500
@@ -1027,30 +1027,25 @@ func TestAppChunksOverlongUserContext(t *testing.T) {
 	}
 
 	req := requests[0]
-	if len(req.Messages) < 3 {
-		t.Fatalf("expected assistant prompt plus chunked user messages, got %d messages", len(req.Messages))
-	}
-
-	var reconstructed strings.Builder
-	userChunks := 0
+	var userMessages []llm.Message
 	for _, msg := range req.Messages {
-		if msg.Role != "user" {
-			continue
-		}
-		userChunks++
-		reconstructed.WriteString(msg.Content)
-		if tokenCount := len(encoder.Encode(msg.Content, nil, nil)); tokenCount > chunkLimit {
-			t.Fatalf("chunk exceeds token limit: %d", tokenCount)
+		if msg.Role == "user" {
+			userMessages = append(userMessages, msg)
 		}
 	}
 
-	if userChunks < 2 {
-		t.Fatalf("expected multiple user chunks, got %d", userChunks)
+	if len(userMessages) != 1 {
+		t.Fatalf("expected a single user message when chunking is disabled, got %d", len(userMessages))
 	}
 
-	if reconstructed.String() != expectedUserInput {
-		idx := firstDifference(reconstructed.String(), expectedUserInput)
-		t.Fatalf("reconstructed content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(reconstructed.String()), len(expectedUserInput))
+	userMsg := userMessages[0]
+	if tokens := len(encoder.Encode(userMsg.Content, nil, nil)); tokens <= chunkLimit {
+		t.Fatalf("test input should remain over the default limit, got %d tokens", tokens)
+	}
+
+	if userMsg.Content != expectedUserInput {
+		idx := firstDifference(userMsg.Content, expectedUserInput)
+		t.Fatalf("user content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(userMsg.Content), len(expectedUserInput))
 	}
 }
 

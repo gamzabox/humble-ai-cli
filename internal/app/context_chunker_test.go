@@ -113,6 +113,26 @@ func TestContextChunkerPreservesLargeInput(t *testing.T) {
 	}
 }
 
+func TestResolveContextChunkLimitDisablesWhenZeroOrNegative(t *testing.T) {
+	t.Parallel()
+
+	if limit := resolveContextChunkLimit(0); limit != 0 {
+		t.Fatalf("expected zero configuration to disable chunking, got %d", limit)
+	}
+
+	if limit := resolveContextChunkLimit(-5); limit != 0 {
+		t.Fatalf("expected negative configuration to disable chunking, got %d", limit)
+	}
+}
+
+func TestResolveContextChunkLimitPassesPositiveValues(t *testing.T) {
+	t.Parallel()
+
+	if limit := resolveContextChunkLimit(2048); limit != 2048 {
+		t.Fatalf("expected positive configuration to be used as-is, got %d", limit)
+	}
+}
+
 func newTestContextChunker(t *testing.T, limit int) *contextChunker {
 	t.Helper()
 	chunker, err := newContextChunker(limit)

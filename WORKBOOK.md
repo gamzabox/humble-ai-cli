@@ -605,5 +605,6 @@ Humble AI CLI version 1.0.0
 # chunking on/off 기능 추가
 - config.json 에 contextChunkSize 설정이 없을경우 Chunking 하지 않음
 - contextChunkSize 설정값이 존재할 경우에만 Context Chunking 수행
+- README.md 에 해당 내용 추가
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

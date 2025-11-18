@@ -236,3 +236,10 @@
 - [x] Connected Tools 및 Function Call Schema 통합 요구사항을 검증하는 테스트를 먼저 수정한다.
 - [x] System prompt 에 연결된 MCP 정보와 스키마 예시를 포함하도록 구현을 업데이트한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Context Chunking On/Off
+- [x] REQUIREMENTS.md/TASKS.md 에 context chunking on/off 요구사항을 정리한다.
+- [x] context chunking 이 기본적으로 비활성화되는 테스트를 먼저 작성/수정한다.
+- [x] config 설정에 따라 chunking 을 생성/비활성화하도록 구현을 수정한다.
+- [x] README.md 에 새로운 동작 방식을 문서화한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

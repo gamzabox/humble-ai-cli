@@ -204,9 +204,12 @@ func New(opts Options) (*App, error) {
 	}
 
 	chunkLimit := resolveContextChunkLimit(cfg.ContextChunkSize)
-	chunker, err := newContextChunker(chunkLimit)
-	if err != nil {
-		return nil, fmt.Errorf("initialize context chunker: %w", err)
+	var chunker *contextChunker
+	if chunkLimit > 0 {
+		chunker, err = newContextChunker(chunkLimit)
+		if err != nil {
+			return nil, fmt.Errorf("initialize context chunker: %w", err)
+		}
 	}
 
 	version := opts.Version
