@@ -1,3 +1,9 @@
+# Ollama num_ctx 설정
+- [x] REQUIREMENTS.md/README.md에 Ollama num_ctx 설정 요구사항을 반영한다.
+- [x] Ollama num_ctx 동작을 검증하는 테스트를 작성한다.
+- [x] Ollama provider 및 config 로직을 구현해 테스트를 통과시킨다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시키고 문서를 검증한다.
+
 # 첫번째 기능 구현 프롬프트
 - [x] REQUIREMENTS.md와 LLM_RULES.md를 검토하고 작업 계획을 수립했다.
 - [x] 요구사항을 검증하는 테스트 코드를 작성한다.

@@ -698,12 +698,20 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		}
 	}
 
+	var requestOptions map[string]any
+	if strings.EqualFold(activeModel.Provider, "ollama") && cfg.OllamaNumCtx > 0 {
+		requestOptions = map[string]any{
+			"num_ctx": cfg.OllamaNumCtx,
+		}
+	}
+
 	req := llm.ChatRequest{
 		Model:        activeModel.Name,
 		Messages:     requestMessages,
 		SystemPrompt: systemPrompt,
 		Stream:       true,
 		Tools:        toolDefs,
+		Options:      requestOptions,
 	}
 	if data, err := json.Marshal(req); err == nil {
 		a.logDebug("LLM request: %s", string(data))

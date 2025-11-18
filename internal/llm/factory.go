@@ -644,7 +644,7 @@ func (p *ollamaProvider) Stream(ctx context.Context, req ChatRequest) (<-chan St
 
 		thinkingSent := false
 		for {
-			result, err := p.streamOnce(ctx, req.Model, true, messages, stream, &thinkingSent, definitions)
+			result, err := p.streamOnce(ctx, req.Model, true, messages, req.Options, stream, &thinkingSent, definitions)
 			if err != nil {
 				if errors.Is(err, context.Canceled) {
 					return
@@ -692,11 +692,12 @@ func (p *ollamaProvider) streamOnce(
 	model string,
 	streaming bool,
 	messages []ollamaMessage,
+	options map[string]any,
 	stream chan<- StreamChunk,
 	thinkingSent *bool,
 	definitions map[string]ToolDefinition,
 ) (*ollamaPassResult, error) {
-	payload, err := buildOllamaPayload(model, messages, streaming)
+	payload, err := buildOllamaPayload(model, messages, streaming, options)
 	if err != nil {
 		return nil, err
 	}
@@ -903,7 +904,7 @@ func (p *ollamaProvider) chunkToolContent(content string) []string {
 
 func buildOllamaRequest(req ChatRequest) ([]byte, error) {
 	messages := buildOllamaMessages(req)
-	return buildOllamaPayload(req.Model, messages, req.Stream)
+	return buildOllamaPayload(req.Model, messages, req.Stream, req.Options)
 }
 
 func buildOllamaMessages(req ChatRequest) []ollamaMessage {
@@ -923,14 +924,25 @@ func buildOllamaMessages(req ChatRequest) []ollamaMessage {
 	return messages
 }
 
-func buildOllamaPayload(model string, messages []ollamaMessage, stream bool) ([]byte, error) {
+func buildOllamaPayload(model string, messages []ollamaMessage, stream bool, extraOptions map[string]any) ([]byte, error) {
+	options := map[string]any{
+		"temperature": defaultTemperature,
+	}
+	for key, value := range extraOptions {
+		if value == nil {
+			continue
+		}
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		options[key] = value
+	}
+
 	payload := ollamaRequestPayload{
 		Model:    model,
 		Stream:   stream,
 		Messages: messages,
-		Options: map[string]any{
-			"temperature": defaultTemperature,
-		},
+		Options:  options,
 	}
 	return json.Marshal(payload)
 }

@@ -182,6 +182,39 @@ func TestBuildOllamaRequestEmbedsNoToolConnectedPromptInSystem(t *testing.T) {
 	}
 }
 
+func TestBuildOllamaRequestIncludesNumCtxOption(t *testing.T) {
+	t.Parallel()
+
+	req := ChatRequest{
+		Model:    "llama3.1",
+		Stream:   true,
+		Messages: []Message{{Role: "user", Content: "hi"}},
+		Options: map[string]any{
+			"num_ctx": 4096,
+		},
+	}
+
+	data, err := buildOllamaRequest(req)
+	if err != nil {
+		t.Fatalf("buildOllamaRequest returned error: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	options, ok := payload["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected options object, got %T", payload["options"])
+	}
+	if got := options["temperature"]; got != 0.1 {
+		t.Fatalf("expected temperature 0.1, got %v", got)
+	}
+	if got := options["num_ctx"]; got != float64(4096) {
+		t.Fatalf("expected num_ctx 4096, got %v", got)
+	}
+}
+
 func TestParseManualToolCallHandlesChooseFunction(t *testing.T) {
 	payload := "Let's pick a tool.\n```\n{\n  \"chooseFunction\": {\n    \"functionName\": \"context7__resolve-library-id\",\n    \"reason\": \"Need to resolve libraries\"\n  }\n}\n```"
 	calls, cleaned := parseManualToolCall(payload)

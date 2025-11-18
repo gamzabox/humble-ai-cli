@@ -47,12 +47,15 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
     }
   ],
   "contextChunkSize": 2000,
+  "ollamaNumCtx": 6144,
   "logLevel": "debug",
   "toolCallMode": "manual"
 }
 ```
 
 `contextChunkSize` controls how many BPE tokens can be included in a single context message before it is split into multiple chunks. The default is 1,500 tokens; increase or decrease the value based on the limits of your target model.
+
+`ollamaNumCtx` sets the `num_ctx` option sent to the Ollama chat API. Provide a positive number to cap the model context size; omit or set to 0 to let Ollama use its defaults.
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.

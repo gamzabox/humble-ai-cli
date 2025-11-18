@@ -40,6 +40,7 @@ type ChatRequest struct {
 	SystemPrompt string           `json:"systemPrompt,omitempty"`
 	Stream       bool             `json:"stream"`
 	Tools        []ToolDefinition `json:"tools,omitempty"`
+	Options      map[string]any   `json:"options,omitempty"`
 }
 
 // ChunkType is the type of a streaming response chunk.

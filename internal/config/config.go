@@ -37,6 +37,7 @@ type Config struct {
 	LogLevel         string  `json:"logLevel,omitempty"`
 	ToolCallMode     string  `json:"toolCallMode,omitempty"`
 	ContextChunkSize int     `json:"contextChunkSize,omitempty"`
+	OllamaNumCtx     int     `json:"ollamaNumCtx,omitempty"`
 	Models           []Model `json:"models,omitempty"`
 }
 
@@ -96,6 +97,10 @@ func (c Config) Validate() error {
 
 	if c.ContextChunkSize < 0 {
 		return fmt.Errorf("contextChunkSize must be positive, got %d", c.ContextChunkSize)
+	}
+
+	if c.OllamaNumCtx < 0 {
+		return fmt.Errorf("ollamaNumCtx must be non-negative, got %d", c.OllamaNumCtx)
 	}
 
 	return nil

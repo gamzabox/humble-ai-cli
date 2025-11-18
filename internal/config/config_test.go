@@ -21,6 +21,7 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 		LogLevel:         "debug",
 		ToolCallMode:     "auto",
 		ContextChunkSize: 2048,
+		OllamaNumCtx:     6144,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -46,6 +47,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.ContextChunkSize != input.ContextChunkSize {
 		t.Fatalf("unexpected contextChunkSize: %d", got.ContextChunkSize)
 	}
+	if got.OllamaNumCtx != input.OllamaNumCtx {
+		t.Fatalf("unexpected ollamaNumCtx: %d", got.OllamaNumCtx)
+	}
 	if len(got.Models) != len(input.Models) {
 		t.Fatalf("unexpected models size: %d", len(got.Models))
 	}
@@ -69,6 +73,7 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 		LogLevel:         "warn",
 		ToolCallMode:     "manual",
 		ContextChunkSize: 3072,
+		OllamaNumCtx:     8192,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -99,6 +104,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if got.ContextChunkSize != cfg.ContextChunkSize {
 		t.Fatalf("unexpected contextChunkSize in persisted config: %d", got.ContextChunkSize)
+	}
+	if got.OllamaNumCtx != cfg.OllamaNumCtx {
+		t.Fatalf("unexpected ollamaNumCtx in persisted config: %d", got.OllamaNumCtx)
 	}
 	active, ok := got.ActiveModel()
 	if !ok {
@@ -171,5 +179,22 @@ func TestConfigValidateRejectsNonPositiveContextChunkSize(t *testing.T) {
 	cfg.ContextChunkSize = 0
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected zero context chunk size to fall back to default, got error: %v", err)
+	}
+}
+
+func TestConfigValidateRejectsNegativeOllamaNumCtx(t *testing.T) {
+	cfg := config.Config{
+		OllamaNumCtx: -32,
+		Models: []config.Model{
+			{Name: "model", Provider: "ollama", Active: true},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for negative ollamaNumCtx value")
+	}
+
+	cfg.OllamaNumCtx = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected zero ollamaNumCtx to be allowed, got error: %v", err)
 	}
 }

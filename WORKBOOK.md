@@ -592,3 +592,18 @@ Humble AI CLI version 1.0.0
 - 설정 가이드 README.md 에 추가
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Ollama chat API 호출 시 num_ctx 설정 추가
+- config.json 에 ollamaNumCtx 값 설정 시 ollama API request 에 num_ctx option 추가 하고 ollamaNumCtx 값을 num_ctx 에 적용
+- ollamaNumCtx 설정이 없으면 num_ctx option 을 추가하지 않음
+- 설정 가이드 README.md 에 추가
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# chunking on/off 기능 추가
+- config.json 에 contextChunkSize 설정이 없을경우 Chunking 하지 않음
+- contextChunkSize 설정값이 존재할 경우에만 Context Chunking 수행
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
