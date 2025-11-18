@@ -230,3 +230,9 @@
 - [x] Connected Tools 및 Function Call Schema 통합 요구사항을 검증하는 테스트를 먼저 수정한다.
 - [x] System prompt 에 연결된 MCP 정보와 스키마 예시를 포함하도록 구현을 업데이트한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Chunk Truncate 옵션 추가
+- [x] REQUIREMENTS.md/README.md/TASKS.md 에 contextTruncate 요구사항을 정의한다.
+- [x] contextTruncate 동작을 검증하는 테스트를 추가한다.
+- [x] contextTruncate 설정을 적용해 chunking 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

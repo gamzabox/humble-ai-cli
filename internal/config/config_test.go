@@ -21,6 +21,7 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 		LogLevel:         "debug",
 		ToolCallMode:     "auto",
 		ContextChunkSize: 2048,
+		ContextTruncate:  true,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -49,6 +50,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if len(got.Models) != len(input.Models) {
 		t.Fatalf("unexpected models size: %d", len(got.Models))
 	}
+	if got.ContextTruncate != input.ContextTruncate {
+		t.Fatalf("unexpected contextTruncate: %t", got.ContextTruncate)
+	}
 	if got.Models[0].Name != input.Models[0].Name {
 		t.Fatalf("unexpected model[0]: %+v", got.Models[0])
 	}
@@ -69,6 +73,7 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 		LogLevel:         "warn",
 		ToolCallMode:     "manual",
 		ContextChunkSize: 3072,
+		ContextTruncate:  false,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -99,6 +104,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if got.ContextChunkSize != cfg.ContextChunkSize {
 		t.Fatalf("unexpected contextChunkSize in persisted config: %d", got.ContextChunkSize)
+	}
+	if got.ContextTruncate != cfg.ContextTruncate {
+		t.Fatalf("unexpected contextTruncate in persisted config: %t", got.ContextTruncate)
 	}
 	active, ok := got.ActiveModel()
 	if !ok {
