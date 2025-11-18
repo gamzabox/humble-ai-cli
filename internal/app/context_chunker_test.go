@@ -13,7 +13,7 @@ import (
 func TestContextChunkerSplitsMessagesExceedingLimit(t *testing.T) {
 	t.Parallel()
 
-	chunker := newTestContextChunker(t, 32, false)
+	chunker := newTestContextChunker(t, 32)
 	msg := llm.Message{
 		Role:    "user",
 		Content: strings.Repeat("chunking requires accurate token measurements. ", 200),
@@ -58,7 +58,7 @@ func TestContextChunkerSplitsMessagesExceedingLimit(t *testing.T) {
 func TestContextChunkerLeavesShortMessagesUntouched(t *testing.T) {
 	t.Parallel()
 
-	chunker := newTestContextChunker(t, 4096, false)
+	chunker := newTestContextChunker(t, 4096)
 	messages := []llm.Message{
 		{Role: "system", Content: "Keep responses short."},
 		{Role: "assistant", Content: "Sure, noted."},
@@ -95,7 +95,7 @@ func TestContextChunkerLeavesShortMessagesUntouched(t *testing.T) {
 func TestContextChunkerPreservesLargeInput(t *testing.T) {
 	t.Parallel()
 
-	chunker := newTestContextChunker(t, tokenizer.DefaultChunkSize, false)
+	chunker := newTestContextChunker(t, tokenizer.DefaultChunkSize)
 	content := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
 
 	chunked, err := chunker.Chunk([]llm.Message{{Role: "user", Content: content}})
@@ -113,45 +113,9 @@ func TestContextChunkerPreservesLargeInput(t *testing.T) {
 	}
 }
 
-func TestContextChunkerTruncatesAdditionalChunksWhenEnabled(t *testing.T) {
-	t.Parallel()
-
-	chunker := newTestContextChunker(t, 64, true)
-	msg := llm.Message{
-		Role:    "user",
-		Content: strings.Repeat("chunk truncation requires deterministic token order. ", 120),
-	}
-
-	encoding, err := tiktoken.GetEncoding("cl100k_base")
-	if err != nil {
-		t.Fatalf("failed to load tokenizer: %v", err)
-	}
-	tokens := encoding.Encode(msg.Content, nil, nil)
-	if len(tokens) <= chunker.chunker.Limit() {
-		t.Fatalf("test message did not exceed chunk limit: got %d tokens", len(tokens))
-	}
-
-	chunked, err := chunker.Chunk([]llm.Message{msg})
-	if err != nil {
-		t.Fatalf("Chunk() error = %v", err)
-	}
-	if len(chunked) != 1 {
-		t.Fatalf("expected exactly one chunk to be retained, got %d", len(chunked))
-	}
-	if chunked[0].Role != msg.Role {
-		t.Fatalf("chunk role mismatch: got %q want %q", chunked[0].Role, msg.Role)
-	}
-
-	firstChunkTokens := tokens[:chunker.chunker.Limit()]
-	expected := encoding.Decode(firstChunkTokens)
-	if chunked[0].Content != expected {
-		t.Fatalf("truncated content mismatch")
-	}
-}
-
-func newTestContextChunker(t *testing.T, limit int, truncate bool) *contextChunker {
+func newTestContextChunker(t *testing.T, limit int) *contextChunker {
 	t.Helper()
-	chunker, err := newContextChunker(limit, truncate)
+	chunker, err := newContextChunker(limit)
 	if err != nil {
 		t.Fatalf("failed to create chunker: %v", err)
 	}

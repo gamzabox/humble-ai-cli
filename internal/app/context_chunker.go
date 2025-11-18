@@ -11,16 +11,15 @@ const defaultContextChunkTokenLimit = tokenizer.DefaultChunkSize
 
 // contextChunker splits oversized context messages while preserving roles.
 type contextChunker struct {
-	chunker  *tokenizer.Chunker
-	truncate bool
+	chunker *tokenizer.Chunker
 }
 
-func newContextChunker(limit int, truncate bool) (*contextChunker, error) {
+func newContextChunker(limit int) (*contextChunker, error) {
 	chunker, err := tokenizer.NewChunker(limit)
 	if err != nil {
 		return nil, fmt.Errorf("initialize tokenizer: %w", err)
 	}
-	return &contextChunker{chunker: chunker, truncate: truncate}, nil
+	return &contextChunker{chunker: chunker}, nil
 }
 
 func resolveContextChunkLimit(configured int) int {
@@ -45,12 +44,6 @@ func (c *contextChunker) Chunk(messages []llm.Message) ([]llm.Message, error) {
 		}
 		if len(parts) == 0 {
 			result = append(result, msg)
-			continue
-		}
-		if c.truncate {
-			split := msg
-			split.Content = parts[0]
-			result = append(result, split)
 			continue
 		}
 		for _, part := range parts {

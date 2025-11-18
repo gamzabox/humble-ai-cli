@@ -37,7 +37,6 @@ type Config struct {
 	LogLevel         string  `json:"logLevel,omitempty"`
 	ToolCallMode     string  `json:"toolCallMode,omitempty"`
 	ContextChunkSize int     `json:"contextChunkSize,omitempty"`
-	ContextTruncate  bool    `json:"contextTruncate,omitempty"`
 	Models           []Model `json:"models,omitempty"`
 }
 

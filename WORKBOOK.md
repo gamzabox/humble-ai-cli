@@ -592,13 +592,3 @@ Humble AI CLI version 1.0.0
 - 설정 가이드 README.md 에 추가
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
-
-
-# Chunk 버리기 기능 추가 및 Chuking Mode 설정 기능 추가
-- 설정된 chunking size 에 따라 나누어진 chunk 를 이어 붙이거나 버릴 것을 설정
-- 설정 key: contextTruncate, Value: boolean
-  - true: 첫번째 chunk 만 context 에 유지하고 나머지는 버림
-  - false: chunk 를 버리지 않고 context 에 적용
-- default value 는 false
-
-**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
