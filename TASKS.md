@@ -219,3 +219,8 @@
 - [x] `type` 필드 조합을 검증하는 테스트를 먼저 작성한다.
 - [x] Manager 구성 로직을 수정해 stdio/sse/streamable-http 타입과 URL/command 우선순위를 처리한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Connected Tools System Prompt 통합
+- [x] Connected Tools 및 Function Call Schema 통합 요구사항을 검증하는 테스트를 먼저 수정한다.
+- [x] System prompt 에 연결된 MCP 정보와 스키마 예시를 포함하도록 구현을 업데이트한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
