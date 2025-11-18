@@ -576,3 +576,19 @@ Humble AI CLI version 1.0.0
 - 추가 condition 은 기존과 같이 연결 MCP tool 이 있을 떄와 없을떄를 구분해 프롬프트를 추가 할 것.
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Chuking Size 를 설정 값으로 조정 하는 기능 추가
+- default: 1500 token
+- config.json 에 contextChunkSize 값 설정 시 설정 값에 따라 chunking 수행
+- 예: 2000 token 마다 chunking 수행
+```
+{
+  ...
+  "contextChunkSize": 2000,
+  ...
+}
+```
+- 설정 가이드 README.md 에 추가
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

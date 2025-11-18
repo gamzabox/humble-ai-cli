@@ -18,8 +18,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 
 	cfgPath := filepath.Join(configDir, "config.json")
 	input := config.Config{
-		LogLevel:     "debug",
-		ToolCallMode: "auto",
+		LogLevel:         "debug",
+		ToolCallMode:     "auto",
+		ContextChunkSize: 2048,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -42,6 +43,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.LogLevel != input.LogLevel {
 		t.Fatalf("unexpected log level: %s", got.LogLevel)
 	}
+	if got.ContextChunkSize != input.ContextChunkSize {
+		t.Fatalf("unexpected contextChunkSize: %d", got.ContextChunkSize)
+	}
 	if len(got.Models) != len(input.Models) {
 		t.Fatalf("unexpected models size: %d", len(got.Models))
 	}
@@ -62,8 +66,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	store := config.NewFileStore(home)
 
 	cfg := config.Config{
-		LogLevel:     "warn",
-		ToolCallMode: "manual",
+		LogLevel:         "warn",
+		ToolCallMode:     "manual",
+		ContextChunkSize: 3072,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -91,6 +96,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if got.ToolCallMode != cfg.ToolCallMode {
 		t.Fatalf("unexpected toolCallMode in persisted config: %s", got.ToolCallMode)
+	}
+	if got.ContextChunkSize != cfg.ContextChunkSize {
+		t.Fatalf("unexpected contextChunkSize in persisted config: %d", got.ContextChunkSize)
 	}
 	active, ok := got.ActiveModel()
 	if !ok {
@@ -146,5 +154,22 @@ func TestConfigValidateRejectsMultipleActiveModels(t *testing.T) {
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation error when multiple models are active")
+	}
+}
+
+func TestConfigValidateRejectsNonPositiveContextChunkSize(t *testing.T) {
+	cfg := config.Config{
+		ContextChunkSize: -1,
+		Models: []config.Model{
+			{Name: "model", Provider: "openai", Active: true},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for negative context chunk size")
+	}
+
+	cfg.ContextChunkSize = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected zero context chunk size to fall back to default, got error: %v", err)
 	}
 }

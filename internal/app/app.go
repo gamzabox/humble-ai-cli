@@ -203,7 +203,8 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("initialize logger: %w", err)
 	}
 
-	chunker, err := newContextChunker(contextChunkTokenLimit)
+	chunkLimit := resolveContextChunkLimit(cfg.ContextChunkSize)
+	chunker, err := newContextChunker(chunkLimit)
 	if err != nil {
 		return nil, fmt.Errorf("initialize context chunker: %w", err)
 	}

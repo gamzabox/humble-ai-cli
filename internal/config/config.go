@@ -34,9 +34,10 @@ const (
 
 // Config captures CLI configuration.
 type Config struct {
-	LogLevel     string  `json:"logLevel,omitempty"`
-	ToolCallMode string  `json:"toolCallMode,omitempty"`
-	Models       []Model `json:"models,omitempty"`
+	LogLevel         string  `json:"logLevel,omitempty"`
+	ToolCallMode     string  `json:"toolCallMode,omitempty"`
+	ContextChunkSize int     `json:"contextChunkSize,omitempty"`
+	Models           []Model `json:"models,omitempty"`
 }
 
 // FindModel locates a model by name.
@@ -91,6 +92,10 @@ func (c Config) Validate() error {
 		if normalized != string(ToolCallModeManual) && normalized != string(ToolCallModeAuto) {
 			return fmt.Errorf("invalid toolCallMode %q", c.ToolCallMode)
 		}
+	}
+
+	if c.ContextChunkSize < 0 {
+		return fmt.Errorf("contextChunkSize must be positive, got %d", c.ContextChunkSize)
 	}
 
 	return nil

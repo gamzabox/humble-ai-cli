@@ -5,7 +5,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 ## Features
 - Interactive REPL with streaming responses and “Thinking…” indicators.
 - Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
-- Automatically chunks context messages every 2,000 BPE tokens to avoid oversized prompts.
+- Automatically chunks context messages every 1,500 BPE tokens by default (configurable via `contextChunkSize`) to avoid oversized prompts.
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
 - Supports configurable system prompts stored at `~/.humble-ai-cli/system_prompt.txt`.
 - Built-in slash commands:
@@ -46,10 +46,13 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "baseUrl": "http://localhost:11434"
     }
   ],
+  "contextChunkSize": 2000,
   "logLevel": "debug",
   "toolCallMode": "manual"
 }
 ```
+
+`contextChunkSize` controls how many BPE tokens can be included in a single context message before it is split into multiple chunks. The default is 1,500 tokens; increase or decrease the value based on the limits of your target model.
 
 Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.

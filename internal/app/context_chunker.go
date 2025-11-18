@@ -7,7 +7,7 @@ import (
 	"github.com/gamzabox/humble-ai-cli/internal/tokenizer"
 )
 
-const contextChunkTokenLimit = tokenizer.DefaultChunkSize
+const defaultContextChunkTokenLimit = tokenizer.DefaultChunkSize
 
 // contextChunker splits oversized context messages while preserving roles.
 type contextChunker struct {
@@ -20,6 +20,13 @@ func newContextChunker(limit int) (*contextChunker, error) {
 		return nil, fmt.Errorf("initialize tokenizer: %w", err)
 	}
 	return &contextChunker{chunker: chunker}, nil
+}
+
+func resolveContextChunkLimit(configured int) int {
+	if configured > 0 {
+		return configured
+	}
+	return defaultContextChunkTokenLimit
 }
 
 func (c *contextChunker) Chunk(messages []llm.Message) ([]llm.Message, error) {

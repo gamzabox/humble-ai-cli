@@ -158,6 +158,12 @@
 - [x] /toggle-mcp 커맨드를 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
+# Context Chunk Size 설정
+- [x] REQUIREMENTS.md 와 README.md 에 contextChunkSize 요구사항 및 설정 가이드를 반영한다.
+- [x] contextChunkSize 설정을 검증하는 테스트를 추가한다.
+- [x] contextChunkSize 값을 적용해 chunking 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # NO TOOL CONNECTED Prompt Handling
 - [x] NO TOOL CONNECTED 프롬프트 요구사항을 REQUIREMENTS.md에 동적으로 반영한다.
 - [x] MCP 서버 비활성화 시 tool schema 프롬프트가 `**NO TOOL CONNECTED**` 를 출력하는 테스트를 추가한다.
