@@ -685,6 +685,19 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		if err != nil {
 			a.logError("context chunking failed: %v", err)
 		} else {
+			if a.contextChunker.truncates() {
+				historyLen := len(history)
+				switch {
+				case historyLen == 0:
+					a.messages = nil
+				case len(chunked) >= historyLen:
+					reduced := make([]llm.Message, historyLen)
+					copy(reduced, chunked[:historyLen])
+					a.messages = reduced
+				default:
+					a.logError("context truncation produced fewer chunks than history (history=%d chunked=%d)", historyLen, len(chunked))
+				}
+			}
 			requestMessages = chunked
 		}
 	}
@@ -833,8 +846,8 @@ loop:
 	now := a.clock.Now()
 
 	a.messages = append(a.messages,
-		llm.Message{Role: "user", Content: content},
-		llm.Message{Role: "assistant", Content: assistant.String()},
+		a.truncateContextMessage(llm.Message{Role: "user", Content: content}),
+		a.truncateContextMessage(llm.Message{Role: "assistant", Content: assistant.String()}),
 	)
 
 	if err := a.persistHistory(activeModel.Name, now); err != nil {
@@ -842,6 +855,18 @@ loop:
 	}
 
 	return nil
+}
+
+func (a *App) truncateContextMessage(msg llm.Message) llm.Message {
+	if a == nil || a.contextChunker == nil || !a.contextChunker.truncates() {
+		return msg
+	}
+	truncated, err := a.contextChunker.truncateMessage(msg)
+	if err != nil {
+		a.logError("context truncation failed: %v", err)
+		return msg
+	}
+	return truncated
 }
 
 func (a *App) persistHistory(model string, when time.Time) error {

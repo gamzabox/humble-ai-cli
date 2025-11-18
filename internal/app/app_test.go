@@ -1029,6 +1029,188 @@ func TestAppChunksOverlongUserContextWithCustomLimit(t *testing.T) {
 	}
 }
 
+func TestAppTruncatesChunkedContextWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	const chunkLimit = 1500
+
+	encoder, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load tokenizer: %v", err)
+	}
+
+	longUserInput := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
+	expectedUserInput := strings.TrimSpace(longUserInput)
+	tokenized := encoder.Encode(expectedUserInput, nil, nil)
+	if len(tokenized) <= chunkLimit {
+		t.Fatalf("test input does not exceed chunk limit, got %d tokens", len(tokenized))
+	}
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			ContextTruncate: true,
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader(longUserInput + "\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected a single request, got %d", len(requests))
+	}
+
+	req := requests[0]
+	var userMessages []llm.Message
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			userMessages = append(userMessages, msg)
+		}
+	}
+	if len(userMessages) != 1 {
+		t.Fatalf("expected exactly one user chunk, got %d", len(userMessages))
+	}
+
+	expectedTokens := tokenized
+	if len(expectedTokens) > chunkLimit {
+		expectedTokens = expectedTokens[:chunkLimit]
+	}
+	expectedChunk := encoder.Decode(expectedTokens)
+	if userMessages[0].Content != expectedChunk {
+		t.Fatalf("truncated chunk mismatch")
+	}
+}
+
+func TestAppPersistsTruncatedHistoryWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	const chunkLimit = 1500
+
+	encoder, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load tokenizer: %v", err)
+	}
+
+	longUserInput := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
+	longAssistantOutput := strings.Repeat("Assistant chunk persistence also requires trimming by token boundaries. ", 2800)
+
+	userTokens := encoder.Encode(strings.TrimSpace(longUserInput), nil, nil)
+	if len(userTokens) <= chunkLimit {
+		t.Fatalf("user input does not exceed chunk limit, got %d tokens", len(userTokens))
+	}
+	assistantTokens := encoder.Encode(longAssistantOutput, nil, nil)
+	if len(assistantTokens) <= chunkLimit {
+		t.Fatalf("assistant output does not exceed chunk limit, got %d tokens", len(assistantTokens))
+	}
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			ContextTruncate: true,
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: longAssistantOutput},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader(longUserInput + "\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(sessionDir, "*.json"))
+	if err != nil {
+		t.Fatalf("failed to read history files: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 history file, got %d", len(files))
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("failed to read history file: %v", err)
+	}
+
+	var record struct {
+		Messages []llm.Message `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("failed to decode history: %v", err)
+	}
+
+	if len(record.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(record.Messages))
+	}
+
+	expectedUser := firstChunk(encoder, strings.TrimSpace(longUserInput), chunkLimit)
+	expectedAssistant := firstChunk(encoder, longAssistantOutput, chunkLimit)
+
+	if record.Messages[0].Content != expectedUser {
+		t.Fatalf("user history not truncated")
+	}
+	if record.Messages[1].Content != expectedAssistant {
+		t.Fatalf("assistant history not truncated")
+	}
+}
+
 func TestAppNewCommandStartsFreshSession(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
@@ -1330,6 +1512,14 @@ func firstDifference(a, b string) int {
 		return limit
 	}
 	return -1
+}
+
+func firstChunk(encoder *tiktoken.Tiktoken, text string, limit int) string {
+	tokens := encoder.Encode(text, nil, nil)
+	if len(tokens) > limit {
+		tokens = tokens[:limit]
+	}
+	return encoder.Decode(tokens)
 }
 
 func TestAppHandlesMCPToolRequests(t *testing.T) {

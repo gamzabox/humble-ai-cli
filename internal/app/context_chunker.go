@@ -62,3 +62,22 @@ func (c *contextChunker) Chunk(messages []llm.Message) ([]llm.Message, error) {
 
 	return result, nil
 }
+
+func (c *contextChunker) truncates() bool {
+	return c != nil && c.truncate
+}
+
+func (c *contextChunker) truncateMessage(msg llm.Message) (llm.Message, error) {
+	if c == nil || c.chunker == nil || !c.truncate {
+		return msg, nil
+	}
+	parts, err := c.chunker.ChunkText(msg.Content)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	if len(parts) == 0 {
+		return msg, nil
+	}
+	msg.Content = parts[0]
+	return msg, nil
+}
