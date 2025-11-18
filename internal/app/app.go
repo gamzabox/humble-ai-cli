@@ -120,6 +120,8 @@ const (
 	modeResponding
 )
 
+const defaultOllamaNumCtx = 30000
+
 var errToolDeclined = errors.New("mcp call declined by user")
 
 const (
@@ -702,9 +704,13 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	}
 
 	var requestOptions map[string]any
-	if strings.EqualFold(activeModel.Provider, "ollama") && cfg.OllamaNumCtx > 0 {
+	if strings.EqualFold(activeModel.Provider, "ollama") {
+		numCtx := cfg.OllamaNumCtx
+		if numCtx <= 0 {
+			numCtx = defaultOllamaNumCtx
+		}
 		requestOptions = map[string]any{
-			"num_ctx": cfg.OllamaNumCtx,
+			"num_ctx": numCtx,
 		}
 	}
 

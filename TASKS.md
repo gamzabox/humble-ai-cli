@@ -1,3 +1,9 @@
+# Ollama num_ctx 기본값 적용
+- [x] Ollama num_ctx 기본값 요구사항을 테스트로 정의한다.
+- [x] 기본값 로직을 구현한다.
+- [x] REQUIREMENTS.md/README.md에 기본값 동작을 반영한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # Ollama num_ctx 설정
 - [x] REQUIREMENTS.md/README.md에 Ollama num_ctx 설정 요구사항을 반영한다.
 - [x] Ollama num_ctx 동작을 검증하는 테스트를 작성한다.

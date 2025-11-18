@@ -911,7 +911,7 @@ func TestAppIncludesOllamaNumCtxOption(t *testing.T) {
 	}
 }
 
-func TestAppOmitsOllamaNumCtxOptionWhenUnset(t *testing.T) {
+func TestAppDefaultsOllamaNumCtxWhenUnset(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
 	store := &stubStore{
@@ -958,10 +958,77 @@ func TestAppOmitsOllamaNumCtxOptionWhenUnset(t *testing.T) {
 		t.Fatalf("expected single request, got %d", len(requests))
 	}
 
-	if options := requests[0].Options; options != nil {
-		if _, ok := options["num_ctx"]; ok {
-			t.Fatalf("num_ctx option should be omitted when unset, got %#v", options)
-		}
+	options := requests[0].Options
+	if options == nil {
+		t.Fatalf("expected request options to include default num_ctx")
+	}
+	got, ok := options["num_ctx"]
+	if !ok {
+		t.Fatalf("expected default num_ctx option to be present, got %#v", options)
+	}
+	if got != 30000 {
+		t.Fatalf("unexpected default num_ctx value: %v", got)
+	}
+}
+
+func TestAppDefaultsOllamaNumCtxWhenZero(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			OllamaNumCtx: 0,
+			Models: []config.Model{
+				{Name: "ollama-model", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("ollama-model", provider)
+
+	input := strings.NewReader("num ctx?\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+		MCP:            &stubMCP{},
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected single request, got %d", len(requests))
+	}
+
+	options := requests[0].Options
+	if options == nil {
+		t.Fatalf("expected request options to include default num_ctx")
+	}
+	got, ok := options["num_ctx"]
+	if !ok {
+		t.Fatalf("expected default num_ctx option to be present, got %#v", options)
+	}
+	if got != 30000 {
+		t.Fatalf("unexpected default num_ctx value: %v", got)
 	}
 }
 

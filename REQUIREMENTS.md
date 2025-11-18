@@ -176,7 +176,7 @@ Ask minimal questions required to make the next legitimate function call.
 - 활성화된 model 을 설정 할 수 있어야 하고 대화시 활성화된 model 을 사용 할 것.
 - 활성 모델이 존재하지 않으면 사용자 입력 시 /set-model 커맨드를 안내한다.
 - log level 설정: debug, info(default), warn, error
-- `ollamaNumCtx` 값을 config.json 루트에 설정하면 Ollama chat API 요청의 `options.num_ctx` 에 전달해 모델 컨텍스트 길이를 제한한다. 설정하지 않거나 0 이하인 경우 해당 옵션을 포함하지 않는다.
+- `ollamaNumCtx` 값을 config.json 루트에 설정하면 Ollama chat API 요청의 `options.num_ctx` 에 전달해 모델 컨텍스트 길이를 제한한다. 설정하지 않거나 0 이하인 경우 기본값 30000을 `num_ctx` 로 전달한다.
 - `toolCallMode` 설정을 추가하고 manual(default) 또는 auto 값을 허용한다.
     - manual 일 경우 MCP tool call 시 사용자에게 실행 여부를 재확인한다.
     - auto 일 경우 tool call 요약을 출력하되 추가 확인 없이 즉시 호출한다.
