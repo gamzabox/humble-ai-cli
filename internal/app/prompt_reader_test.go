@@ -2,6 +2,9 @@ package app
 
 import (
 	"bytes"
+	"errors"
+	"io"
+	"os"
 	"testing"
 )
 
@@ -180,5 +183,48 @@ func TestHandleWindowsControlKeyHandlesHistory(t *testing.T) {
 	}
 	if got := buf.String(); got != "pending" {
 		t.Fatalf("expected buffer replaced with pending content, got %q", got)
+	}
+}
+
+func TestInteractiveLineReaderEnsureANSIEnabledOnce(t *testing.T) {
+	reader := newInteractiveLineReader(os.Stdin, io.Discard, nil)
+	calls := 0
+	reader.enableANSI = func(w io.Writer) error {
+		calls++
+		return nil
+	}
+
+	if err := reader.ensureANSIEnabled(); err != nil {
+		t.Fatalf("ensureANSIEnabled returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableANSI to be called once, got %d", calls)
+	}
+
+	if err := reader.ensureANSIEnabled(); err != nil {
+		t.Fatalf("ensureANSIEnabled returned error on second call: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableANSI not to run multiple times, got %d calls", calls)
+	}
+}
+
+func TestInteractiveLineReaderEnsureANSIEnabledPropagatesError(t *testing.T) {
+	reader := newInteractiveLineReader(os.Stdin, io.Discard, nil)
+	wantErr := errors.New("vt failed")
+	calls := 0
+	reader.enableANSI = func(w io.Writer) error {
+		calls++
+		return wantErr
+	}
+
+	if err := reader.ensureANSIEnabled(); !errors.Is(err, wantErr) {
+		t.Fatalf("expected error %v, got %v", wantErr, err)
+	}
+	if err := reader.ensureANSIEnabled(); !errors.Is(err, wantErr) {
+		t.Fatalf("expected cached error %v on second call, got %v", wantErr, err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableANSI to be called once despite errors, got %d", calls)
 	}
 }

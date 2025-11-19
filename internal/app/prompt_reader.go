@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -46,6 +47,9 @@ type interactiveLineReader struct {
 	output      io.Writer
 	onInterrupt func()
 	history     *inputHistory
+	enableANSI  func(io.Writer) error
+	ansiOnce    sync.Once
+	ansiErr     error
 }
 
 func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func()) *interactiveLineReader {
@@ -54,10 +58,15 @@ func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func
 		output:      output,
 		onInterrupt: onInterrupt,
 		history:     newInputHistory(),
+		enableANSI:  enableVirtualTerminalSequences,
 	}
 }
 
 func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
+	if err := r.ensureANSIEnabled(); err != nil {
+		return "", err
+	}
+
 	fd := int(r.input.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
@@ -248,6 +257,16 @@ func (r *interactiveLineReader) loadNextHistory(buffer *lineBuffer) bool {
 		return true
 	}
 	return false
+}
+
+func (r *interactiveLineReader) ensureANSIEnabled() error {
+	if r.enableANSI == nil {
+		return nil
+	}
+	r.ansiOnce.Do(func() {
+		r.ansiErr = r.enableANSI(r.output)
+	})
+	return r.ansiErr
 }
 
 func readCSISequence(reader *bufio.Reader) (string, error) {
