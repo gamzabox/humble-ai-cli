@@ -195,3 +195,37 @@ func TestParseFileHandlesEmptyUserRules(t *testing.T) {
 		t.Fatalf("expected empty user rules content, got %q", *def.UserRules)
 	}
 }
+
+func TestParseFileKeepsNestedHeadingsWithinStep(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "WF.md")
+	content := "# WORKFLOWS\n" +
+		"## Do A\n" +
+		"A prompt start\n" +
+		"### Detail.1\n" +
+		"First details\n" +
+		"### Detail.2\n" +
+		"Second details\n\n" +
+		"## Do B\n" +
+		"B prompt body.\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write workflow file: %v", err)
+	}
+
+	def, err := workflow.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	if len(def.Steps) != 2 {
+		t.Fatalf("expected two workflow steps, got %d", len(def.Steps))
+	}
+
+	expected := "A prompt start\n### Detail.1\nFirst details\n### Detail.2\nSecond details"
+	if def.Steps[0].Prompt != expected {
+		t.Fatalf("unexpected first prompt: %q", def.Steps[0].Prompt)
+	}
+	if def.Steps[1].Prompt != "B prompt body." {
+		t.Fatalf("unexpected second prompt: %q", def.Steps[1].Prompt)
+	}
+}

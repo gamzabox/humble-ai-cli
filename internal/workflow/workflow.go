@@ -120,7 +120,7 @@ func parseWorkflowSteps(content string) ([]Step, error) {
 
 	for _, line := range lines[startIdx:] {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "##") {
+		if isWorkflowStepHeading(trimmed) {
 			if err := flush(); err != nil {
 				return nil, err
 			}
@@ -141,6 +141,16 @@ func parseWorkflowSteps(content string) ([]Step, error) {
 		return nil, errors.New("workflow file must define at least one workflow step")
 	}
 	return steps, nil
+}
+
+func isWorkflowStepHeading(line string) bool {
+	if !strings.HasPrefix(line, "##") {
+		return false
+	}
+	if len(line) == 2 {
+		return true
+	}
+	return line[2] != '#'
 }
 
 func extractUserRules(content string) (string, bool) {

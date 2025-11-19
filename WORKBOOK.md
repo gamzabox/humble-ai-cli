@@ -657,3 +657,27 @@ Humble AI CLI version 1.0.0
 - 사용자 프롬프트들이 하나의 세션으로 컨텍스트를 유지 하면서 순서대로 실행 되어야 함
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# Workflow 하위 항목 처리 개건
+- `# WORKFLOWS` 하위의 각 사용자 프롬프트를 의미하는 2단계 헤딩 `##` 하위에 3단계 헤딩이 존재 할 경우 이를 별도의 사용자 프롬프트로 인식 하는 문제가 있어 수정이 필요함.
+- 즉 2단계 헤딩 `##` 하위의 모든 내용은 모두 하나의 사용자 프롬프트로 다루어 져야 함
+- 단 또다른 2단계 헤딩은 현재 구현과 같이 별도의 사용자 프롬프트로 다루어 져야함
+- 다음 코드 블럭에서 A프롬프트와 B프롬프트 를 참고할 것
+```markdown
+# WORKFLOW
+## Do A
+A 프롬프트 시작
+### Detail.1
+First details
+### Detail.2
+Second details
+A 프롬프트 끝
+## Do B
+B 프롬프트 시작
+B 프롬프트 끝
+# Some Other Title
+```
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
