@@ -51,6 +51,9 @@ type interactiveLineReader struct {
 	ansiOnce    sync.Once
 	ansiErr     error
 	renderWidth int
+	enableVTIn  func(*os.File) error
+	vtOnce      sync.Once
+	vtErr       error
 }
 
 func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func()) *interactiveLineReader {
@@ -60,11 +63,15 @@ func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func
 		onInterrupt: onInterrupt,
 		history:     newInputHistory(),
 		enableANSI:  enableVirtualTerminalSequences,
+		enableVTIn:  enableVirtualTerminalInput,
 	}
 }
 
 func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 	if err := r.ensureANSIEnabled(); err != nil {
+		return "", err
+	}
+	if err := r.ensureVTInputEnabled(); err != nil {
 		return "", err
 	}
 
@@ -270,6 +277,16 @@ func (r *interactiveLineReader) ensureANSIEnabled() error {
 		r.ansiErr = r.enableANSI(r.output)
 	})
 	return r.ansiErr
+}
+
+func (r *interactiveLineReader) ensureVTInputEnabled() error {
+	if r.enableVTIn == nil {
+		return nil
+	}
+	r.vtOnce.Do(func() {
+		r.vtErr = r.enableVTIn(r.input)
+	})
+	return r.vtErr
 }
 
 func readCSISequence(reader *bufio.Reader) (string, error) {

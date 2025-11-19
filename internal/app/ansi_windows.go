@@ -32,3 +32,25 @@ func enableVirtualTerminalSequences(writer io.Writer) error {
 
 	return windows.SetConsoleMode(handle, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 }
+
+func enableVirtualTerminalInput(file *os.File) error {
+	if file == nil {
+		return nil
+	}
+
+	handle := windows.Handle(file.Fd())
+
+	var mode uint32
+	if err := windows.GetConsoleMode(handle, &mode); err != nil {
+		if errors.Is(err, windows.ERROR_INVALID_HANDLE) {
+			return nil
+		}
+		return err
+	}
+
+	if mode&windows.ENABLE_VIRTUAL_TERMINAL_INPUT != 0 {
+		return nil
+	}
+
+	return windows.SetConsoleMode(handle, mode|windows.ENABLE_VIRTUAL_TERMINAL_INPUT)
+}

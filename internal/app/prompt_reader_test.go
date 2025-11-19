@@ -228,3 +228,46 @@ func TestInteractiveLineReaderEnsureANSIEnabledPropagatesError(t *testing.T) {
 		t.Fatalf("expected enableANSI to be called once despite errors, got %d", calls)
 	}
 }
+
+func TestInteractiveLineReaderEnsureVTInputEnabledOnce(t *testing.T) {
+	reader := newInteractiveLineReader(os.Stdin, io.Discard, nil)
+	calls := 0
+	reader.enableVTIn = func(f *os.File) error {
+		calls++
+		return nil
+	}
+
+	if err := reader.ensureVTInputEnabled(); err != nil {
+		t.Fatalf("ensureVTInputEnabled returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableVTIn to be called once, got %d", calls)
+	}
+
+	if err := reader.ensureVTInputEnabled(); err != nil {
+		t.Fatalf("ensureVTInputEnabled returned error on second call: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableVTIn not to run multiple times, got %d calls", calls)
+	}
+}
+
+func TestInteractiveLineReaderEnsureVTInputEnabledPropagatesError(t *testing.T) {
+	reader := newInteractiveLineReader(os.Stdin, io.Discard, nil)
+	wantErr := errors.New("vt input failed")
+	calls := 0
+	reader.enableVTIn = func(f *os.File) error {
+		calls++
+		return wantErr
+	}
+
+	if err := reader.ensureVTInputEnabled(); !errors.Is(err, wantErr) {
+		t.Fatalf("expected error %v, got %v", wantErr, err)
+	}
+	if err := reader.ensureVTInputEnabled(); !errors.Is(err, wantErr) {
+		t.Fatalf("expected cached error %v on second call, got %v", wantErr, err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected enableVTIn to be called once despite errors, got %d", calls)
+	}
+}
