@@ -1377,16 +1377,10 @@ func TestAppSetModelUpdatesConfig(t *testing.T) {
 	}
 }
 
-func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
+func TestAppInitializesSystemPromptFromCodeAndCreatesUserRulesFile(t *testing.T) {
 	home := t.TempDir()
 	configDir := filepath.Join(home, ".humble-ai-cli")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("failed to create config dir: %v", err)
-	}
 	systemPromptPath := filepath.Join(configDir, "system_prompt.txt")
-	if _, err := os.Stat(systemPromptPath); err == nil {
-		t.Fatalf("expected system prompt to be absent before test")
-	}
 
 	store := &stubStore{
 		cfg: config.Config{
@@ -1439,57 +1433,138 @@ func TestAppCreatesDefaultSystemPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	_ = instance
 
-	if _, err := os.Stat(systemPromptPath); err != nil {
-		t.Fatalf("expected system prompt to be created, got error: %v", err)
+	if _, err := os.Stat(systemPromptPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected legacy system prompt file to remain absent, got err=%v", err)
 	}
 
-	data, err := os.ReadFile(systemPromptPath)
+	userRulesPath := filepath.Join(configDir, "user-rules.md")
+	data, err := os.ReadFile(userRulesPath)
 	if err != nil {
-		t.Fatalf("failed to read system prompt: %v", err)
+		t.Fatalf("expected user-rules.md to be created, read error: %v", err)
+	}
+	if len(bytes.TrimSpace(data)) != 0 {
+		t.Fatalf("expected empty user-rules.md on first launch, got %q", string(data))
 	}
 
-	content := string(bytes.TrimSpace(data))
-	if !strings.Contains(content, "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.") {
-		t.Fatalf("expected default prompt to mention humble AI agent guidance, got:\n%s", content)
-	}
-	if !strings.Contains(content, "# 1) Core Behavior Rules") {
-		t.Fatalf("expected default prompt to include core behavior rules heading, got:\n%s", content)
-	}
-	if !strings.Contains(content, "# 2) Function Selection Flow (chooseFunction MUST be used)") {
-		t.Fatalf("expected default prompt to describe chooseFunction flow, got:\n%s", content)
-	}
-	if !strings.Contains(content, "Before calling EACH MCP function:") {
-		t.Fatalf("expected default prompt to emphasize each MCP function, got:\n%s", content)
-	}
-	if !strings.Contains(content, "## Choose Function Call Example") {
-		t.Fatalf("expected default prompt to include choose function example, got:\n%s", content)
-	}
-	if !strings.Contains(content, "# 6) Asking for Missing Information") {
-		t.Fatalf("expected default prompt to include missing information heading, got:\n%s", content)
-	}
-	if !strings.Contains(content, "Ask minimal questions required to make the next legitimate function call.") {
-		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", content)
-	}
-	// Running once should not overwrite existing content.
-	custom := []byte("custom prompt")
-	if err := os.WriteFile(systemPromptPath, custom, 0o644); err != nil {
-		t.Fatalf("failed to write custom prompt: %v", err)
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
 
-	inst2, err := app.New(opts)
+	requests := provider.Requests()
+	if len(requests) == 0 {
+		t.Fatalf("expected at least one LLM request to capture system prompt")
+	}
+	prompt := requests[0].SystemPrompt
+	if !strings.Contains(prompt, "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.") {
+		t.Fatalf("expected default prompt to mention humble AI agent guidance, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "# 1) Core Behavior Rules") {
+		t.Fatalf("expected default prompt to include core behavior rules heading, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "# 2) Function Selection Flow (chooseFunction MUST be used)") {
+		t.Fatalf("expected default prompt to describe chooseFunction flow, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Before calling EACH MCP function:") {
+		t.Fatalf("expected default prompt to emphasize each MCP function, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Choose Function Call Example") {
+		t.Fatalf("expected default prompt to include choose function example, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "# 6) Asking for Missing Information") {
+		t.Fatalf("expected default prompt to include missing information heading, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Ask minimal questions required to make the next legitimate function call.") {
+		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "# Connected Tools") {
+		t.Fatalf("expected final system prompt to include connected tools list, got:\n%s", prompt)
+	}
+}
+
+func TestAppAppendsUserRulesToSystemPrompt(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	userRulesPath := filepath.Join(configDir, "user-rules.md")
+	customRules := "## Custom Guardrails\n- Always respond politely."
+	if err := os.WriteFile(userRulesPath, []byte(customRules), 0o644); err != nil {
+		t.Fatalf("failed to seed user-rules.md: %v", err)
+	}
+
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkThinking},
+			{Type: llm.ChunkToken, Content: "Hi"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExecutor := &stubMCP{
+		description: app.MCPServer{
+			Name:        "calculator",
+			Description: "Performs simple calculations",
+		},
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Performs simple calculations"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add numbers."},
+			},
+		},
+	}
+
+	input := strings.NewReader("Hello\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExecutor,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
 	if err != nil {
-		t.Fatalf("New() second time error = %v", err)
+		t.Fatalf("New() error = %v", err)
 	}
-	_ = inst2
 
-	after, err := os.ReadFile(systemPromptPath)
-	if err != nil {
-		t.Fatalf("failed to read prompt after second init: %v", err)
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
-	if !bytes.Equal(after, custom) {
-		t.Fatalf("expected prompt to remain unchanged on subsequent init")
+
+	requests := provider.Requests()
+	if len(requests) == 0 {
+		t.Fatalf("expected LLM request to inspect system prompt")
+	}
+	prompt := requests[0].SystemPrompt
+	idxRules := strings.Index(prompt, customRules)
+	if idxRules == -1 {
+		t.Fatalf("expected system prompt to contain user rules, got:\n%s", prompt)
+	}
+	idxConnected := strings.Index(prompt, "# Connected Tools")
+	if idxConnected == -1 {
+		t.Fatalf("expected connected tools section in final prompt, got:\n%s", prompt)
+	}
+	if idxRules > idxConnected {
+		t.Fatalf("expected user rules to appear before connected tools section, got prompt:\n%s", prompt)
 	}
 }
 

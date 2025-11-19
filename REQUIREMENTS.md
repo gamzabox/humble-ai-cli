@@ -58,7 +58,7 @@
 
 ```
 
-- 다음은 default system prompt로 Humble AI CLI 실행시 system_prompt.txt 파일이 없을 경우 system_prompt.txt 파일을 생성 해 다음 내용을 정확히 포함해야 한다.
+- 다음은 Humble AI CLI 가 코드에 내장해 항상 사용하는 기본 system prompt 로, 아래 내용을 정확히 포함해야 한다.
 ```
 You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.  
 A **tool** corresponds to an MCP server, and a **function** is an action exposed by that tool.
@@ -180,10 +180,8 @@ Ask minimal questions required to make the next legitimate function call.
 - `toolCallMode` 설정을 추가하고 manual(default) 또는 auto 값을 허용한다.
     - manual 일 경우 MCP tool call 시 사용자에게 실행 여부를 재확인한다.
     - auto 일 경우 tool call 요약을 출력하되 추가 확인 없이 즉시 호출한다.
-- system prompt 설정은 $HOME/.humble-ai-cli/system_prompt.txt 파일을 사용 함
-  - system_prompt.txt 파일과 내용 존재 할경우 LLM 호출시 system prompt 로 설정해야 함
-  - 최초 실행 시 system_prompt.txt 파일의 존재 여부를 확인하고 미 존재시 Default system_prompt.txt 를 생성 할 것.
-  - system_prompt.txt 에는 MCP server 호출을 위한 tooling 정의가 포함되어야 함.
+- system prompt 는 코드에 내장된 기본 문자열을 사용하며, 위에서 정의한 Default system prompt 내용을 항상 포함해야 한다.
+- 프로그램 실행 시 $HOME/.humble-ai-cli/user-rules.md 파일이 없으면 빈 파일로 생성하고, 해당 파일의 내용을 system prompt 마지막에 그대로 이어 붙여 LLM 에 전달한다.
 
 ## 대화 기록
 - 대화 세션은 $HOME/.humble-ai-cli/sessions/ 디렉토리에 각각의 json 파일로 저장 한다.

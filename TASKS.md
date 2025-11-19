@@ -249,3 +249,9 @@
 - [x] config 설정에 따라 chunking 을 생성/비활성화하도록 구현을 수정한다.
 - [x] README.md 에 새로운 동작 방식을 문서화한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# System Prompt 내장 및 User Rules
+- [x] REQUIREMENTS.md/README.md 에 system prompt 내장 및 user-rules 동작 요구사항을 반영한다.
+- [x] App system prompt 동작을 검증하는 테스트를 먼저 작성/수정한다.
+- [x] user-rules 파일 생성 및 system prompt 병합 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

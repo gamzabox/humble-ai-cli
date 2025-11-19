@@ -608,3 +608,12 @@ Humble AI CLI version 1.0.0
 - README.md 에 해당 내용 추가
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# system prompt 를 system_prompt.txt 읽어오는 대신 항상 코드의 system_prompt 를 사용 하도록 수정
+- default system prompt 파일 생성 기능 제거
+- 더이상 system_prompt.txt 를 읽지 않고 코드에 저장된 system prompt 사용
+- 프로그램 실행시 $HOME/.humble-ai-cli/user-rules.md 파일이 존재하지 않는다면 비어 있는 user-rules.md 파일 생성
+- user-rules.md 파일의 내용을 읽어 system prompt 마지막에 추가
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

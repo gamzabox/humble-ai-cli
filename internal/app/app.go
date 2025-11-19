@@ -269,34 +269,41 @@ func New(opts Options) (*App, error) {
 	return app, nil
 }
 
-func ensureSystemPrompt(home string, servers []MCPServer, functions map[string][]MCPFunction) (string, error) {
-	path := filepath.Join(home, ".humble-ai-cli", "system_prompt.txt")
+func ensureUserRules(home string) (string, error) {
+	path := filepath.Join(home, ".humble-ai-cli", "user-rules.md")
 	data, err := os.ReadFile(path)
 	if err == nil {
 		return strings.TrimSpace(string(data)), nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("read system prompt: %w", err)
+		return "", fmt.Errorf("read user rules: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("create system prompt dir: %w", err)
+		return "", fmt.Errorf("create user rules dir: %w", err)
 	}
-
-	content := buildDefaultSystemPrompt(servers, functions)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("write default system prompt: %w", err)
+	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+		return "", fmt.Errorf("create user rules: %w", err)
 	}
-	return strings.TrimSpace(content), nil
+	return "", nil
 }
 
 func (a *App) initializeSystemPrompt() error {
-	servers := a.snapshotServers()
-	functions := a.snapshotFunctions()
-	prompt, err := ensureSystemPrompt(a.homeDir, servers, functions)
+	prompt := buildDefaultSystemPrompt()
+
+	rules, err := ensureUserRules(a.homeDir)
 	if err != nil {
 		return err
 	}
+
+	if trimmedRules := strings.TrimSpace(rules); trimmedRules != "" {
+		if strings.TrimSpace(prompt) != "" {
+			prompt = strings.TrimRight(prompt, "\n") + "\n\n" + trimmedRules
+		} else {
+			prompt = trimmedRules
+		}
+	}
+
 	a.systemPrompt = prompt
 	a.logDebug("System prompt initialized (length=%d)", len(prompt))
 	return nil
@@ -332,26 +339,7 @@ func (a *App) loadMCPFunctions(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) snapshotServers() []MCPServer {
-	names := a.sortedMCPServerNames()
-	servers := make([]MCPServer, 0, len(names))
-	for _, name := range names {
-		servers = append(servers, a.mcpServers[name])
-	}
-	return servers
-}
-
-func (a *App) snapshotFunctions() map[string][]MCPFunction {
-	a.mcpMu.RLock()
-	defer a.mcpMu.RUnlock()
-	out := make(map[string][]MCPFunction, len(a.mcpFunctions))
-	for key, funcs := range a.mcpFunctions {
-		out[key] = cloneMCPFunctions(funcs)
-	}
-	return out
-}
-
-func buildDefaultSystemPrompt(servers []MCPServer, functions map[string][]MCPFunction) string {
+func buildDefaultSystemPrompt() string {
 	return "You are a **tool-enabled Humble AI Agent** operating with MCP (Model Context Protocol) servers.  \n" +
 		"A **tool** corresponds to an MCP server, and a **function** is an action exposed by that tool.\n\n" +
 		"Your goal is to achieve the user’s intent **safely, accurately, and efficiently using available functions**.\n\n" +

@@ -7,7 +7,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 - Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
 - Optionally chunks context messages when `contextChunkSize` is set, splitting at the configured BPE token limit to avoid oversized prompts.
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
-- Supports configurable system prompts stored at `~/.humble-ai-cli/system_prompt.txt`.
+- Ships with a built-in system prompt and appends optional user rules from `~/.humble-ai-cli/user-rules.md`.
 - Built-in slash commands:
   - `/help` – show available commands.
   - `/new` – start a fresh session (clears in-memory history).
@@ -57,7 +57,7 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 
 `ollamaNumCtx` sets the `num_ctx` option sent to the Ollama chat API. Provide a positive number to cap the model context size, or omit/set it to 0 to fall back to the CLI default of 30000 tokens (the value is always sent to Ollama as `num_ctx`).
 
-Optional: provide a system prompt via `~/.humble-ai-cli/system_prompt.txt`. The contents will be prepended to every request.
+Optional: add additional guardrails in `~/.humble-ai-cli/user-rules.md`. The CLI creates the file if missing and appends its contents to the built-in system prompt for every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.
 Set `toolCallMode` to `auto` to automatically run approved MCP tool calls without the confirmation prompt (the default `manual` mode keeps the confirmation step). You can also adjust this within the CLI via `/set-tool-mode auto` or `/set-tool-mode manual`.
 
@@ -103,7 +103,7 @@ Set `toolCallMode` to `auto` to automatically run approved MCP tool calls withou
   - If a `url` is provided you must set `type`. Use `sse` or `streamable-http`. When both `command` and `url` exist, `type` decides which transport is used (`stdio` → command, `sse`/`streamable-http` → URL).
 - For remote servers, `env` entries are sent as HTTP headers. SSE endpoints that never emit the required `endpoint` event are automatically retried using the streamable HTTP protocol, so existing configs remain resilient.
 - When the LLM requests a tool call, the CLI prints the server name and description. In `manual` mode it then asks `Call now? (Y/N)`; in `auto` mode it executes immediately after printing the summary. Toggle the behaviour with `/set-tool-mode`.
-- On first launch the CLI auto-creates `~/.humble-ai-cli/system_prompt.txt` if missing and lists all enabled MCP servers so the LLM understands which tools are available.
+- On first launch the CLI auto-creates an empty `~/.humble-ai-cli/user-rules.md` (if missing) and lists all enabled MCP servers so the LLM understands which tools are available.
 - Use `/toggle-mcp` inside the CLI to quickly enable or disable specific MCP servers without manually editing the JSON file.
 
 ### Prompting Example
