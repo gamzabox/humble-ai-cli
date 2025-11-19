@@ -50,6 +50,7 @@ type interactiveLineReader struct {
 	enableANSI  func(io.Writer) error
 	ansiOnce    sync.Once
 	ansiErr     error
+	renderWidth int
 }
 
 func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func()) *interactiveLineReader {
@@ -78,6 +79,7 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 
 	reader := bufio.NewReader(r.input)
 	buffer := newLineBuffer()
+	r.renderWidth = 0
 	if r.history != nil {
 		r.history.Reset()
 	}
@@ -97,7 +99,7 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 		switch b {
 		case '\r', '\n':
 			line := buffer.String()
-			renderLine(r.output, prompt, buffer)
+			renderLine(r.output, prompt, buffer, &r.renderWidth)
 			_, _ = fmt.Fprint(r.output, "\r\n")
 			if r.history != nil {
 				if line != "" {
@@ -113,6 +115,7 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 			}
 			_, _ = fmt.Fprint(r.output, "^C\r\n")
 			buffer = newLineBuffer()
+			r.renderWidth = 0
 			if r.history != nil {
 				r.history.Reset()
 			}
@@ -129,12 +132,12 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 			}
 		case 0x7f, 0x08: // Backspace / Ctrl+H
 			if buffer.Backspace() {
-				renderLine(r.output, prompt, buffer)
+				renderLine(r.output, prompt, buffer, &r.renderWidth)
 			}
 		case 0x1b:
 			moved := r.handleEscape(reader, buffer)
 			if moved {
-				renderLine(r.output, prompt, buffer)
+				renderLine(r.output, prompt, buffer, &r.renderWidth)
 			}
 		default:
 			if runtime.GOOS == "windows" && (b == 0x00 || b == 0xe0) {
@@ -148,13 +151,13 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 				}
 				if handled {
 					if changed {
-						renderLine(r.output, prompt, buffer)
+						renderLine(r.output, prompt, buffer, &r.renderWidth)
 					}
 					continue
 				}
 			}
 			if r.insertRune(b, reader, buffer) {
-				renderLine(r.output, prompt, buffer)
+				renderLine(r.output, prompt, buffer, &r.renderWidth)
 			}
 		}
 	}

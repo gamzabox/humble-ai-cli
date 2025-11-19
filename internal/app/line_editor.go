@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mattn/go-runewidth"
 )
@@ -100,12 +101,26 @@ func (b *lineBuffer) ContentWidth() int {
 	return runewidth.StringWidth(string(b.runes))
 }
 
-func renderLine(w io.Writer, prompt string, buf *lineBuffer) {
+func renderLine(w io.Writer, prompt string, buf *lineBuffer, lastWidth *int) {
 	line := buf.String()
+	contentWidth := buf.ContentWidth()
+	cursorWidth := buf.CursorWidth()
+	var clearWidth int
+	if lastWidth != nil && *lastWidth > contentWidth {
+		clearWidth = *lastWidth - contentWidth
+	}
+
 	_, _ = fmt.Fprintf(w, "\r%s%s", prompt, line)
-	_, _ = fmt.Fprint(w, "\x1b[K")
-	moveLeft := buf.ContentWidth() - buf.CursorWidth()
+	if clearWidth > 0 {
+		_, _ = fmt.Fprint(w, strings.Repeat(" ", clearWidth))
+	}
+
+	moveLeft := contentWidth - cursorWidth + clearWidth
 	if moveLeft > 0 {
-		_, _ = fmt.Fprintf(w, "\x1b[%dD", moveLeft)
+		_, _ = fmt.Fprint(w, strings.Repeat("\b", moveLeft))
+	}
+
+	if lastWidth != nil {
+		*lastWidth = contentWidth
 	}
 }

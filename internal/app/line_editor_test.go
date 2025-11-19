@@ -48,10 +48,11 @@ func TestRenderLineProducesExpectedCursorMovement(t *testing.T) {
 	buf.MoveLeft()
 
 	var builder strings.Builder
-	renderLine(&builder, "humble-ai> ", buf)
+	width := 0
+	renderLine(&builder, "humble-ai> ", buf, &width)
 
 	got := builder.String()
-	expected := "\rhumble-ai> 你好!\x1b[K\x1b[1D"
+	expected := "\rhumble-ai> 你好!\b"
 	if got != expected {
 		t.Fatalf("render output mismatch\nexpected: %q\ngot:      %q", expected, got)
 	}
