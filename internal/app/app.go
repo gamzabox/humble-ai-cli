@@ -373,13 +373,6 @@ func buildDefaultSystemPrompt() string {
 		"2. Receive that function’s input schema.\n" +
 		"3. Create a function call using the schema and required properties.\n" +
 		"4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.\n\n" +
-		"## Choose Function Call Example\n" +
-		"{\n" +
-		"  \"chooseFunction\": {\n" +
-		"    \"functionName\": \"chooseFunction\",\n" +
-		"    \"reason\": \"Need to perform the awesome action\"\n" +
-		"  }\n" +
-		"}\n\n" +
 		"---\n\n" +
 		"# 3) Function Call Protocol\n" +
 		"- One message = one function call JSON only.\n" +
@@ -407,6 +400,14 @@ func buildDefaultSystemPrompt() string {
 		"- “Do you have login credentials?”\n" +
 		"- “Which selector should I extract data from?”\n" +
 		"Ask minimal questions required to make the next legitimate function call.\n\n" +
+		"---\n" +
+		"# Choose Function Example\n" +
+		"{\n" +
+		"  \"chooseFunction\": {\n" +
+		"    \"functionName\": \"chooseFunction\",\n" +
+		"    \"reason\": \"Need to perform the awesome action\"\n" +
+		"  }\n" +
+		"}\n\n" +
 		"---\n"
 }
 

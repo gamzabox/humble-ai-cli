@@ -1468,7 +1468,7 @@ func TestAppInitializesSystemPromptFromCodeAndCreatesUserRulesFile(t *testing.T)
 	if !strings.Contains(prompt, "Before calling EACH MCP function:") {
 		t.Fatalf("expected default prompt to emphasize each MCP function, got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "## Choose Function Call Example") {
+	if !strings.Contains(prompt, "# Choose Function Example") {
 		t.Fatalf("expected default prompt to include choose function example, got:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "# 6) Asking for Missing Information") {
