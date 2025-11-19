@@ -7,7 +7,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -48,12 +47,8 @@ type interactiveLineReader struct {
 	onInterrupt func()
 	history     *inputHistory
 	enableANSI  func(io.Writer) error
-	ansiOnce    sync.Once
-	ansiErr     error
 	renderWidth int
 	enableVTIn  func(*os.File) error
-	vtOnce      sync.Once
-	vtErr       error
 }
 
 func newInteractiveLineReader(input *os.File, output io.Writer, onInterrupt func()) *interactiveLineReader {
@@ -83,6 +78,13 @@ func (r *interactiveLineReader) ReadLine(prompt string) (string, error) {
 	defer func() {
 		_ = term.Restore(fd, oldState)
 	}()
+
+	if err := r.ensureANSIEnabled(); err != nil {
+		return "", err
+	}
+	if err := r.ensureVTInputEnabled(); err != nil {
+		return "", err
+	}
 
 	reader := bufio.NewReader(r.input)
 	buffer := newLineBuffer()
@@ -273,20 +275,14 @@ func (r *interactiveLineReader) ensureANSIEnabled() error {
 	if r.enableANSI == nil {
 		return nil
 	}
-	r.ansiOnce.Do(func() {
-		r.ansiErr = r.enableANSI(r.output)
-	})
-	return r.ansiErr
+	return r.enableANSI(r.output)
 }
 
 func (r *interactiveLineReader) ensureVTInputEnabled() error {
 	if r.enableVTIn == nil {
 		return nil
 	}
-	r.vtOnce.Do(func() {
-		r.vtErr = r.enableVTIn(r.input)
-	})
-	return r.vtErr
+	return r.enableVTIn(r.input)
 }
 
 func readCSISequence(reader *bufio.Reader) (string, error) {
