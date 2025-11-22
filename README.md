@@ -47,9 +47,9 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "baseUrl": "http://localhost:11434"
     }
   ],
-  "ollamaContextChunkSize": 2000,
+  "ollamaContextChunkSize": 0,
   "contextRetentionTurns": 5,
-  "ollamaNumCtx": 6144,
+  "ollamaNumCtx": 30000,
   "logLevel": "debug",
   "toolCallMode": "manual"
 }
