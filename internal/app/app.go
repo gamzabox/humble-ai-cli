@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -434,7 +435,20 @@ func (a *App) setupSignals(ch chan os.Signal) {
 }
 
 // Run starts the interactive CLI loop.
-func (a *App) Run(ctx context.Context) error {
+func (a *App) Run(ctx context.Context) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			stack := strings.TrimSpace(string(debug.Stack()))
+			if a.logger != nil {
+				if stack != "" {
+					a.logger.Errorf("runtime panic recovered: %v\nstack trace:\n%s", rec, stack)
+				} else {
+					a.logger.Errorf("runtime panic recovered: %v", rec)
+				}
+			}
+			err = fmt.Errorf("runtime panic recovered: %v", rec)
+		}
+	}()
 	defer func() {
 		if a.stopSignal != nil {
 			a.stopSignal()
@@ -979,16 +993,19 @@ func (a *App) toggleMCPServer(ctx context.Context) error {
 	if a.mcp != nil {
 		if err := a.mcp.Reload(); err != nil {
 			fmt.Fprintf(a.errOutput, "> Failed to reload MCP servers: %v\n", err)
+			a.logError("reload MCP servers failed: %v", err)
 		}
 	}
 
 	refreshed, err := mcpkg.ListConfiguredServers(a.homeDir)
 	if err != nil {
 		fmt.Fprintf(a.errOutput, "> Failed to refresh MCP server list: %v\n", err)
+		a.logError("refresh MCP server list failed: %v", err)
 		return nil
 	}
 	if err := a.applyConfiguredMCPServers(ctx, refreshed); err != nil {
 		fmt.Fprintf(a.errOutput, "> Failed to update MCP server cache: %v\n", err)
+		a.logError("update MCP server cache failed: %v", err)
 	}
 	return nil
 }

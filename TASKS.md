@@ -319,3 +319,15 @@
 - [x] 관련 테스트를 수정해 새로운 안내 문구를 검증한다.
 - [x] App/system prompt 구성 로직을 업데이트한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Runtime 에러 로그 보강
+- [x] runtime 에러 로그 요구사항을 REQUIREMENTS.md/TASKS.md 에 반영한다.
+- [x] runtime 에러 발생 시 error 레벨 로그와 stack trace 기록을 검증하는 테스트를 작성한다.
+- [x] runtime 에러를 감지해 상세 로그를 남기도록 구현을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# MCP 에러 로그 상세화
+- [x] REQUIREMENTS.md/TASKS.md 에 MCP 에러 로그 요구사항을 추가한다.
+- [x] MCP 초기화/호출 실패 시 error 로그가 남는지 검증하는 테스트를 작성한다.
+- [x] 구현을 보강해 MCP 초기화 및 호출 에러를 error 레벨로 기록한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

@@ -201,6 +201,8 @@ Ask minimal questions required to make the next legitimate function call.
 ## Logging
 - $HOME/.humble-ai-cli/logs 디렉토리에 날짜별 로그파일(application-hac-%d{yyyy-MM-dd}.log) 을 생성하고 기록한다.
 - config.json 에 설정된 log level(debug, info, warn, error) 에 따라 로그 출력 여부를 결정한다.
+- CLI 가 panic 으로 종료되는 등 runtime 에러가 발생하면 에러 메시지와 stack trace 를 포함한 상세 로그를 error 레벨로 기록하고 로그 파일에 남긴다.
+- MCP 초기화 실패나 MCP tool 호출 오류(네트워크 실패, 응답 에러 등) 발생 시 해당 원인과 세부 정보를 error 레벨로 로그 파일에 기록한다.
 - 다음 이벤트는 debug 레벨로 기록한다.
     - LLM API request 및 response
     - MCP 서버 초기화 과정과 tool 호출 결과

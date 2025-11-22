@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -212,6 +213,14 @@ func (p *sequencedRecordingProvider) Requests() []llm.ChatRequest {
 	return out
 }
 
+type panicProvider struct {
+	message string
+}
+
+func (p panicProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	panic(p.message)
+}
+
 type toolRequestProvider struct {
 	mu          sync.Mutex
 	requests    []llm.ChatRequest
@@ -284,6 +293,7 @@ type stubMCP struct {
 	description   app.MCPServer
 	servers       []app.MCPServer
 	toolset       map[string][]app.MCPFunction
+	toolsErr      map[string]error
 	response      llm.ToolResult
 	responseError error
 }
@@ -348,6 +358,9 @@ func (s *stubMCP) Calls() []recordedMCPCall {
 func (s *stubMCP) Tools(ctx context.Context, server string) ([]app.MCPFunction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.toolsErr[server]; err != nil {
+		return nil, err
+	}
 	tools := s.toolset[server]
 	out := make([]app.MCPFunction, len(tools))
 	for i, fn := range tools {
@@ -2385,6 +2398,239 @@ func TestAppWritesDebugLogs(t *testing.T) {
 			t.Fatalf("expected log to contain %q, got:\n%s", phrase, logContent)
 		}
 	}
+}
+
+func TestAppLogsRuntimeErrorDetails(t *testing.T) {
+	home := t.TempDir()
+	logDir := filepath.Join(home, ".humble-ai-cli", "logs")
+
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "panic-model", Provider: "openai", APIKey: "sk-test", Active: true},
+			},
+		},
+	}
+
+	panicMessage := "forced runtime panic"
+	factory := newStubFactory()
+	factory.Register("panic-model", panicProvider{message: panicMessage})
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          strings.NewReader("Hello\n"),
+		Output:         io.Discard,
+		ErrorOutput:    io.Discard,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            &stubMCP{},
+		Clock:          fixedClock(time.Date(2025, 5, 1, 9, 30, 0, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	runErr := runAppWithoutPanic(t, instance)
+	if runErr == nil {
+		t.Fatalf("expected Run to return an error due to panic")
+	}
+	if !strings.Contains(runErr.Error(), "runtime panic recovered") {
+		t.Fatalf("expected error to mention runtime panic recovery, got %v", runErr)
+	}
+	if !strings.Contains(runErr.Error(), panicMessage) {
+		t.Fatalf("expected error to include panic message, got %v", runErr)
+	}
+
+	files, err := filepath.Glob(filepath.Join(logDir, "application-hac-*.log"))
+	if err != nil {
+		t.Fatalf("glob logs error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("expected runtime panic to create a log file in %s", logDir)
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	logContent := string(data)
+	for _, phrase := range []string{
+		"runtime panic recovered",
+		panicMessage,
+		"stack trace:",
+		"panicProvider",
+	} {
+		if !strings.Contains(logContent, phrase) {
+			t.Fatalf("expected log to contain %q, got:\n%s", phrase, logContent)
+		}
+	}
+}
+
+func TestAppLogsMCPInitializationErrors(t *testing.T) {
+	home := t.TempDir()
+	logDir := filepath.Join(home, ".humble-ai-cli", "logs")
+
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "noop-model", Provider: "openai", APIKey: "sk-test", Active: true},
+			},
+		},
+	}
+	factory := newStubFactory()
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "broken", Description: "Fails to list tools"},
+		},
+		toolsErr: map[string]error{
+			"broken": errors.New("init failure"),
+		},
+	}
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          strings.NewReader("/exit\n"),
+		Output:         io.Discard,
+		ErrorOutput:    io.Discard,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 6, 1, 10, 0, 0, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(logDir, "application-hac-*.log"))
+	if err != nil {
+		t.Fatalf("glob logs error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("expected log file to exist in %s", logDir)
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	logContent := string(data)
+	for _, phrase := range []string{
+		"MCP initialization failed",
+		"broken",
+		"init failure",
+	} {
+		if !strings.Contains(logContent, phrase) {
+			t.Fatalf("expected log to contain %q, got:\n%s", phrase, logContent)
+		}
+	}
+}
+
+func TestAppLogsMCPCallErrors(t *testing.T) {
+	home := t.TempDir()
+	logDir := filepath.Join(home, ".humble-ai-cli", "logs")
+
+	store := &stubStore{
+		cfg: config.Config{
+			LogLevel: "info",
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-test", Active: true},
+			},
+		},
+	}
+
+	provider := &toolRequestProvider{
+		call: llm.ToolCall{
+			Server:      "calculator",
+			Method:      "add",
+			Description: "Add numbers.",
+			Arguments: map[string]any{
+				"a": float64(7),
+				"b": float64(11),
+			},
+		},
+		after: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calculator", Description: "Simple math"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calculator": {
+				{Name: "add", Description: "Add two numbers."},
+			},
+		},
+		responseError: errors.New("upstream failure"),
+	}
+
+	input := strings.NewReader("Hello\nY\n/exit\n")
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         io.Discard,
+		ErrorOutput:    io.Discard,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Date(2025, 7, 2, 12, 0, 0, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(logDir, "application-hac-*.log"))
+	if err != nil {
+		t.Fatalf("glob logs error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("expected log file in %s", logDir)
+	}
+
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	logContent := string(data)
+	for _, phrase := range []string{
+		"MCP call error",
+		"calculator",
+		"add",
+		"upstream failure",
+	} {
+		if !strings.Contains(logContent, phrase) {
+			t.Fatalf("expected log to contain %q, got:\n%s", phrase, logContent)
+		}
+	}
+}
+
+func runAppWithoutPanic(t *testing.T, instance *app.App) error {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Run() panicked: %v", r)
+		}
+	}()
+	return instance.Run(context.Background())
 }
 
 type fixedClock time.Time
