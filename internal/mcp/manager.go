@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -390,7 +391,9 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLog
 			}
 			return nil, err
 		}
-		return newSessionHolder(session, nil), nil
+		return newSessionHolder(session, func() error {
+			return closeCommandProcess(cmd)
+		}), nil
 
 	case connectionTypeSSE:
 		httpClient := httpClientWithHeaders(cfg.httpHeaders())
@@ -416,6 +419,42 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLog
 	}
 
 	return nil, fmt.Errorf("unsupported type for server %q", cfg.Name)
+}
+
+func closeCommandProcess(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	if cmd.ProcessState != nil {
+		return nil
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+
+	select {
+	case err := <-done:
+		return ignoreExitError(err)
+	case <-timer.C:
+		_ = cmd.Process.Kill()
+		return ignoreExitError(<-done)
+	}
+}
+
+func ignoreExitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil
+	}
+	return err
 }
 
 func connectStreamableHTTP(ctx context.Context, client *sdk.Client, cfg serverConfig, httpClient *http.Client) (*sessionHolder, error) {
@@ -456,7 +495,7 @@ func newSessionHolder(session *sdk.ClientSession, extraClose func() error) *sess
 	}
 
 	go func() {
-		err := session.Wait()
+		err := ignoreExitError(session.Wait())
 		holder.recordClose(err)
 	}()
 
@@ -464,7 +503,7 @@ func newSessionHolder(session *sdk.ClientSession, extraClose func() error) *sess
 }
 
 func (h *sessionHolder) Close() error {
-	err := h.session.Close()
+	err := ignoreExitError(h.session.Close())
 	h.recordClose(err)
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -488,7 +527,7 @@ func (h *sessionHolder) recordClose(sessionErr error) {
 		}
 		close(h.done)
 	})
-	combined := errors.Join(sessionErr, extraErr)
+	combined := errors.Join(ignoreExitError(sessionErr), ignoreExitError(extraErr))
 	if combined != nil {
 		h.mu.Lock()
 		if h.err == nil {

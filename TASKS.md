@@ -227,6 +227,12 @@
 - [ ] 안내 메시지 출력 기능을 구현한다.
 - [ ] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
+# MCP 세션 종료 보완
+- [x] MCP 종료 요구사항을 검토하고 필요 시 REQUIREMENTS.md 를 업데이트한다.
+- [x] 프로그램 종료 시 MCP 세션과 서버 프로세스가 종료되는지 검증하는 테스트를 작성한다.
+- [x] MCP 종료 로직을 수정해 세션 및 서버 프로세스가 남지 않도록 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # OpenAI Tool Parameters 제거
 - [x] REQUIREMENTS.md/TASKS.md 에 OpenAI tools parameters 제거 요구사항을 반영한다.
 - [x] OpenAI tools 전달 로직을 검증하는 테스트를 추가한다.

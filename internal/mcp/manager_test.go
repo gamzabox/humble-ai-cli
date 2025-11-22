@@ -8,8 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -142,6 +145,67 @@ func TestManagerCloseShutsDownSessions(t *testing.T) {
 	waitFor(t, time.Second, func() bool { return !handle.alive() })
 }
 
+func TestManagerCloseTerminatesCommandProcess(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("process liveness checks require unix signals")
+	}
+
+	ctx := context.Background()
+	home := t.TempDir()
+	pidFile := filepath.Join(home, "mcp.pid")
+
+	writeServerConfig(t, home, map[string]map[string]any{
+		"stay-alive": {
+			"enabled": true,
+			"command": os.Args[0],
+			"args": []string{
+				"-test.run=TestHelperPersistentMCPServer",
+				"--",
+			},
+			"env": map[string]any{
+				"GO_WANT_HELPER_PROCESS": "1",
+				"HELPER_MCP_PERSISTENT":  "1",
+				"HELPER_PID_FILE":        pidFile,
+			},
+		},
+	})
+
+	mgr, err := NewManager(home)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if _, err := mgr.Call(ctx, "stay-alive", "echo", nil); err != nil {
+		t.Fatalf("Call() error = %v", err)
+	}
+
+	pid := readPID(t, pidFile)
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatalf("FindProcess(%d) error = %v", pid, err)
+	}
+	t.Cleanup(func() {
+		_ = proc.Signal(os.Kill)
+	})
+
+	if err := mgr.Close(); err != nil {
+		var details []string
+		type unwrapper interface {
+			Unwrap() []error
+		}
+		if u, ok := err.(unwrapper); ok {
+			for _, part := range u.Unwrap() {
+				details = append(details, fmt.Sprintf("%T: %v", part, part))
+			}
+		}
+		t.Fatalf("Close() error (%T) = %v parts=%v", err, err, details)
+	}
+
+	waitFor(t, 2*time.Second, func() bool { return processExited(proc) })
+}
+
 func TestDefaultSessionDialerForwardsEnvToCommand(t *testing.T) {
 	t.Parallel()
 
@@ -269,11 +333,11 @@ func TestDefaultSessionDialerConnectsSSEServer(t *testing.T) {
 	defer httpServer.Close()
 
 	cfg := serverConfig{
-		Name:     "remote-sse",
-		Enabled:  true,
-		URL:      httpServer.URL,
-		Type:     connectionTypeSSE,
-		Headers:  map[string]string{"Authorization": "Bearer token"},
+		Name:    "remote-sse",
+		Enabled: true,
+		URL:     httpServer.URL,
+		Type:    connectionTypeSSE,
+		Headers: map[string]string{"Authorization": "Bearer token"},
 	}
 
 	holder, err := defaultSessionDialer(ctx, cfg, nil)
@@ -344,11 +408,11 @@ func TestDefaultSessionDialerConnectsHTTPServer(t *testing.T) {
 	defer httpServer.Close()
 
 	cfg := serverConfig{
-		Name:     "remote-http",
-		Enabled:  true,
-		URL:      httpServer.URL,
-		Type:     connectionTypeStreamableHTTP,
-		Headers:  map[string]string{"X-Test-Header": "1"},
+		Name:    "remote-http",
+		Enabled: true,
+		URL:     httpServer.URL,
+		Type:    connectionTypeStreamableHTTP,
+		Headers: map[string]string{"X-Test-Header": "1"},
 	}
 
 	holder, err := defaultSessionDialer(ctx, cfg, nil)
@@ -391,7 +455,7 @@ func TestLoadServerConfigsReadsHeaders(t *testing.T) {
 	home := t.TempDir()
 	writeServerConfig(t, home, map[string]map[string]any{
 		"remote": {
-			"url": "https://example.com/mcp",
+			"url":  "https://example.com/mcp",
 			"type": connectionTypeSSE,
 			"headers": map[string]any{
 				"Authorization": "Bearer token",
@@ -453,10 +517,10 @@ func TestDefaultSessionDialerFallsBackFromSSEToHTTP(t *testing.T) {
 	defer httpServer.Close()
 
 	cfg := serverConfig{
-		Name:      "fallback-http",
-		Enabled:   true,
-		URL:       httpServer.URL,
-		Type:      connectionTypeSSE,
+		Name:    "fallback-http",
+		Enabled: true,
+		URL:     httpServer.URL,
+		Type:    connectionTypeSSE,
 	}
 
 	holder, err := defaultSessionDialer(ctx, cfg, nil)
@@ -607,6 +671,33 @@ func TestServerConfigConnectionKind(t *testing.T) {
 
 // --- test helpers ---
 
+func readPID(t *testing.T, path string) int {
+	t.Helper()
+	var data []byte
+	waitFor(t, 2*time.Second, func() bool {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		data = content
+		return true
+	})
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("invalid pid in %s: %v", path, err)
+	}
+	return pid
+}
+
+func processExited(proc *os.Process) bool {
+	if proc == nil {
+		return true
+	}
+	err := proc.Signal(syscall.Signal(0))
+	return err != nil
+}
+
 type testDialer struct {
 	t *testing.T
 
@@ -750,4 +841,39 @@ func TestHelperCommandServer(t *testing.T) {
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+func TestHelperPersistentMCPServer(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" || os.Getenv("HELPER_MCP_PERSISTENT") != "1" {
+		return
+	}
+
+	if pidFile := os.Getenv("HELPER_PID_FILE"); pidFile != "" {
+		_ = os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644)
+	}
+
+	server := sdk.NewServer(&sdk.Implementation{Name: "persistent-helper", Version: "0.0.1"}, nil)
+	server.AddTool(&sdk.Tool{
+		Name:        "echo",
+		Description: "echo tool",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: "ok"},
+			},
+		}, nil
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Run(context.Background(), &sdk.StdioTransport{})
+	}()
+
+	if err := <-done; err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+
+	select {}
 }
