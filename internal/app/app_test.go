@@ -943,6 +943,61 @@ func TestAppStreamsResponseAndWritesHistory(t *testing.T) {
 	}
 }
 
+func TestAppSkipsThinkingMarkersWhenChunkIsEmpty(t *testing.T) {
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "stub-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkThinking, Content: ""},
+			{Type: llm.ChunkToken, Content: "Answer"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("stub-model", provider)
+
+	input := strings.NewReader("Explain?\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	got := output.String()
+	if strings.Contains(got, "<<< Thinking >>>") || strings.Contains(got, "<<< End Thinking >>>") {
+		t.Fatalf("unexpected thinking markers for empty chunk:\n%s", got)
+	}
+	answerIdx := strings.Index(got, "Answer")
+	if answerIdx == -1 {
+		t.Fatalf("expected answer content in output:\n%s", got)
+	}
+	if strings.Contains(got, "<<< Thinking >>>") {
+		t.Fatalf("answer should be printed without thinking markers for empty chunk:\n%s", got)
+	}
+}
+
 func TestAppIncludesOllamaNumCtxOption(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")

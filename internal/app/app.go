@@ -787,13 +787,11 @@ loop:
 				continue
 			}
 			openThinking()
-			if chunk.Content != "" {
-				fmt.Fprint(a.output, chunk.Content)
-				if strings.HasSuffix(chunk.Content, "\n") {
-					thinking.needsLineBreak = false
-				} else {
-					thinking.needsLineBreak = true
-				}
+			fmt.Fprint(a.output, chunk.Content)
+			if strings.HasSuffix(chunk.Content, "\n") {
+				thinking.needsLineBreak = false
+			} else {
+				thinking.needsLineBreak = true
 			}
 		case llm.ChunkToken:
 			closeThinking()

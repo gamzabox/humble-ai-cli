@@ -303,3 +303,13 @@
 - [x] OpenAI temperature fallback 동작을 검증하는 테스트를 작성한다.
 - [x] OpenAI provider 가 temperature 미지원 모델에서 기본값으로 재시도하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Thinking 빈 Chunk 표시
+- [x] REQUIREMENTS.md 를 확인하고 Thinking 빈 chunk 표시 문제를 재현하는 테스트를 작성한다.
+- [x] 빈 Thinking chunk 를 받아도 표시줄이 출력되도록 구현을 수정한다.
+- [x] `go test ./...` 로 전체 테스트를 실행해 통과 여부를 확인한다.
+
+# Thinking 메시지 누락
+- [x] REQUIREMENTS.md 를 확인하고 Thinking 메시지 없이 마커만 출력되는 문제를 재현하는 테스트를 작성한다.
+- [x] Thinking 내용이 없는 chunk 를 무시해 마커만 출력되지 않도록 구현을 수정한다.
+- [x] `go test ./...` 로 전체 테스트를 실행해 통과 여부를 확인한다.
