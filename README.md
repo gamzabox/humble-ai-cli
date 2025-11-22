@@ -50,7 +50,7 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
   "ollamaContextChunkSize": 0,
   "contextRetentionTurns": 5,
   "ollamaNumCtx": 30000,
-  "logLevel": "debug",
+  "logLevel": "info",
   "toolCallMode": "manual"
 }
 ```
