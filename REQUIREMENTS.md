@@ -13,24 +13,16 @@
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
 - 이 내용은 system prompt 하단에 포함해 함께 전달한다.
 
-## Build & Release
-- `build.sh` 스크립트를 제공해 cross-platform 빌드를 수행한다.
-- 스크립트는 `git describe --tags --abbrev=0` 결과를 version 값으로 사용하고, 태그가 없을 경우 `dev` 를 사용한다.
-- build 시 ldflags `-X` 옵션으로 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Version` 과 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Date` 값을 각각 최신 git tag, UTC 빌드 시간(ISO8601/RFC3339 형식)으로 주입한다.
-- `internal/buildinfo` 의 version 기본값은 `dev`, date 기본값은 `unknown` 이어야 한다.
-- 빌드 타겟은 `linux/amd64`, `windows/amd64`, `windows/arm64` 이며 출력 파일명은 각각 `humble-ai-cli`, `humble-ai-cli_amd64.exe`, `humble-ai-cli_arm64.exe` 여야 한다.
-- 생성된 바이너리는 `dist/` 디렉터리에 저장한다.
-
 ```
 # Connected Tools
 
-## MCP Server: context7
+## MCP Server: awesome-mcp
 
-- function name: **context7__get-library-docs**
-- description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+- function name: **awesome-mcp__get-good-thing**
+- description: description about get-good-thing function.
 
-- function name: **context7__resolve-library-id**
-- description: Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+- function name: **awesome-mcp__search-good-thing**
+- description: description about search-good-thing function.
 
 
 # Function Call Schema and Example
@@ -96,19 +88,11 @@ Your goal is to achieve the user’s intent **safely, accurately, and efficientl
 # 2) Function Selection Flow (chooseFunction MUST be used)
 Before calling EACH MCP function:
 1. Call **chooseFunction** with:
-   - `functionName`: the selected function  
+   - `functionName`: the selected function (set only function name)
    - `reason`: why this function is necessary  
 2. Receive that function’s input schema.
 3. Create a function call using the schema and required properties.
 4. Wait for its response and incorporate results into the final answer. If more function call is needed then starts function selection flow again.
-
-## Choose Function Call Example
-{
-  "chooseFunction": {
-    "functionName": "chooseFunction",
-    "reason": "Need to perform the awesome action"
-  }
-}
 
 ---
 
@@ -144,6 +128,16 @@ Examples:
 - “Do you have login credentials?”
 - “Which selector should I extract data from?”
 Ask minimal questions required to make the next legitimate function call.
+
+---
+
+# Choose Function Example
+{
+  "chooseFunction": {
+    "functionName": "doAwesome",
+    "reason": "Need to perform the awesome action"
+  }
+}
 
 ---
 
@@ -232,6 +226,14 @@ Ask minimal questions required to make the next legitimate function call.
 - $HOME/.humble-ai-cli/logs 디렉토리에 날짜별 로그파일을 생성한다.
   - 로그파일명 포맷: application-hac-%d{yyyy-MM-dd}.log
 - config.json 에 설정된 log level 에 따라 로그 출력
+
+## Build & Release
+- `build.sh` 스크립트를 제공해 cross-platform 빌드를 수행한다.
+- 스크립트는 `git describe --tags --abbrev=0` 결과를 version 값으로 사용하고, 태그가 없을 경우 `dev` 를 사용한다.
+- build 시 ldflags `-X` 옵션으로 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Version` 과 `github.com/gamzabox/humble-ai-cli/internal/buildinfo.Date` 값을 각각 최신 git tag, UTC 빌드 시간(ISO8601/RFC3339 형식)으로 주입한다.
+- `internal/buildinfo` 의 version 기본값은 `dev`, date 기본값은 `unknown` 이어야 한다.
+- 빌드 타겟은 `linux/amd64`, `windows/amd64`, `windows/arm64` 이며 출력 파일명은 각각 `humble-ai-cli`, `humble-ai-cli_amd64.exe`, `humble-ai-cli_arm64.exe` 여야 한다.
+- 생성된 바이너리는 `dist/` 디렉터리에 저장한다.
 
 # Non-Functional Requirements
 - 개발 언어: go 1.25.2

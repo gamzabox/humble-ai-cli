@@ -313,3 +313,9 @@
 - [x] REQUIREMENTS.md 를 확인하고 Thinking 메시지 없이 마커만 출력되는 문제를 재현하는 테스트를 작성한다.
 - [x] Thinking 내용이 없는 chunk 를 무시해 마커만 출력되지 않도록 구현을 수정한다.
 - [x] `go test ./...` 로 전체 테스트를 실행해 통과 여부를 확인한다.
+
+# System Prompt 및 Connected Tools 최신화
+- [x] REQUIREMENTS.md 에 정의된 최신 system prompt/Connected Tools 요구사항을 검토한다.
+- [x] 관련 테스트를 수정해 새로운 안내 문구를 검증한다.
+- [x] App/system prompt 구성 로직을 업데이트한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

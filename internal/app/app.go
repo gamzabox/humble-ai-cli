@@ -373,7 +373,7 @@ func buildDefaultSystemPrompt() string {
 		"# 2) Function Selection Flow (chooseFunction MUST be used)\n" +
 		"Before calling EACH MCP function:\n" +
 		"1. Call **chooseFunction** with:\n" +
-		"   - `functionName`: the selected function  \n" +
+		"   - `functionName`: the selected function  (set only function name) \n" +
 		"   - `reason`: why this function is necessary  \n" +
 		"2. Receive that function’s input schema.\n" +
 		"3. Create a function call using the schema and required properties.\n" +
@@ -405,11 +405,11 @@ func buildDefaultSystemPrompt() string {
 		"- “Do you have login credentials?”\n" +
 		"- “Which selector should I extract data from?”\n" +
 		"Ask minimal questions required to make the next legitimate function call.\n\n" +
-		"---\n" +
+		"---\n\n" +
 		"# Choose Function Example\n" +
 		"{\n" +
 		"  \"chooseFunction\": {\n" +
-		"    \"functionName\": \"chooseFunction\",\n" +
+		"    \"functionName\": \"doAwesome\",\n" +
 		"    \"reason\": \"Need to perform the awesome action\"\n" +
 		"  }\n" +
 		"}\n\n" +
@@ -1186,7 +1186,7 @@ func toolContextPrompt(defs []llm.ToolDefinition, includeToolListing bool) strin
 	return "NO FUNCTION CONNECTED"
 }
 
-const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
+const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server name\",\n    \"name\": \"function name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
 
 func (a *App) functionDescription(server, method string) string {
 	a.mcpMu.RLock()

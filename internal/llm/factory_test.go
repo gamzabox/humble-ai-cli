@@ -53,7 +53,7 @@ func testNoToolPrompt() string {
 	return "# Connected Tools\n\nNO FUNCTION CONNECTED\n" + testFunctionCallSchemaBlock
 }
 
-const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
+const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
 
 func TestBuildOllamaRequestEmbedsToolPromptInSystem(t *testing.T) {
 	t.Parallel()
@@ -486,14 +486,32 @@ finished:
 	if !strings.Contains(string(firstBody), "functionCall") {
 		t.Fatalf("first request missing functionCall mention: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "context7__resolve-library-id") {
-		t.Fatalf("first request missing target function example: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "server_name") {
+		t.Fatalf("first request missing schema server placeholder: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "libraryName") {
-		t.Fatalf("first request missing argument example in function call schema: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "tool name") {
+		t.Fatalf("first request missing schema tool name placeholder: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "Context7-compatible library ID for the Go language MCP SDK") {
-		t.Fatalf("first request missing reason guidance in function call schema: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "arg1 name") {
+		t.Fatalf("first request missing schema argument placeholder: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "arg2 name") {
+		t.Fatalf("first request missing schema second argument placeholder: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "reason why calling this tool") {
+		t.Fatalf("first request missing schema reason guidance: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "good-server") {
+		t.Fatalf("first request missing example server entry: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "good-tool") {
+		t.Fatalf("first request missing example tool entry: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "goodArg") {
+		t.Fatalf("first request missing example argument guidance: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "why this tool call is needed") {
+		t.Fatalf("first request missing example reason guidance: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected Tools") {
 		t.Fatalf("first request missing connected tools heading: %s", string(firstBody))
@@ -720,13 +738,31 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), "functionCall") {
 		t.Fatalf("functionCall mention missing in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "context7__resolve-library-id") {
-		t.Fatalf("function call schema missing target example in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "server_name") {
+		t.Fatalf("function call schema missing server placeholder in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "libraryName") {
+	if !strings.Contains(string(firstBody), "tool name") {
+		t.Fatalf("function call schema missing tool placeholder in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "arg1 name") {
+		t.Fatalf("function call schema missing first argument placeholder in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "arg2 name") {
+		t.Fatalf("function call schema missing second argument placeholder in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "reason why calling this tool") {
+		t.Fatalf("function call schema missing reason placeholder in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "good-server") {
+		t.Fatalf("function call example missing server entry in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "good-tool") {
+		t.Fatalf("function call example missing tool entry in first request: %s", string(firstBody))
+	}
+	if !strings.Contains(string(firstBody), "goodArg") {
 		t.Fatalf("function call example missing argument entry in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "Context7-compatible library ID for the Go language MCP SDK") {
+	if !strings.Contains(string(firstBody), "why this tool call is needed") {
 		t.Fatalf("function call example missing reason entry in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "# Connected Tools") {

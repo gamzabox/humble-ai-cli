@@ -39,6 +39,12 @@ func TestToolContextPromptIncludesFunctionsWhenListingEnabled(t *testing.T) {
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
 	}
+	if !strings.Contains(prompt, `"server": "server name"`) {
+		t.Fatalf("expected schema block to include placeholder server entry, got %q", prompt)
+	}
+	if !strings.Contains(prompt, `"server": "good-server"`) {
+		t.Fatalf("expected schema example to include good-server entry, got %q", prompt)
+	}
 }
 
 func TestToolContextPromptShowsFallbackNotice(t *testing.T) {
@@ -53,6 +59,12 @@ func TestToolContextPromptShowsFallbackNotice(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
+	}
+	if !strings.Contains(prompt, `"arg1 name": "argument1 value"`) {
+		t.Fatalf("expected placeholder arguments in schema block, got %q", prompt)
+	}
+	if !strings.Contains(prompt, `"goodArg": "nice"`) {
+		t.Fatalf("expected example arguments in schema block, got %q", prompt)
 	}
 }
 
