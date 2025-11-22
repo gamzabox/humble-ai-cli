@@ -1324,9 +1324,8 @@ func emitReasoningChunks(stream chan<- StreamChunk, raws ...json.RawMessage) {
 func collectReasoningStrings(out *[]string, value any) {
 	switch v := value.(type) {
 	case string:
-		text := strings.TrimSpace(v)
-		if text != "" {
-			*out = append(*out, text)
+		if strings.TrimSpace(v) != "" {
+			*out = append(*out, v)
 		}
 	case []any:
 		for _, item := range v {

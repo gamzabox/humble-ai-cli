@@ -1078,8 +1078,8 @@ func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != "Analyzing" {
 		t.Fatalf("expected first reasoning token, got %#v", chunk)
 	}
-	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != "context" {
-		t.Fatalf("expected second reasoning token, got %#v", chunk)
+	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != " context" {
+		t.Fatalf("expected second reasoning token with leading space preserved, got %#v", chunk)
 	}
 	if chunk := expectChunk(); chunk.Type != ChunkToken || chunk.Content != "Answer" {
 		t.Fatalf("expected answer token, got %#v", chunk)
@@ -1379,8 +1379,8 @@ func TestOpenAIProviderStreamsReasoningContentVariants(t *testing.T) {
 	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Step 1" {
 		t.Fatalf("expected first reasoning content, got %#v", chunk)
 	}
-	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Conclusion." {
-		t.Fatalf("expected second reasoning content, got %#v", chunk)
+	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "\nConclusion." {
+		t.Fatalf("expected second reasoning content with whitespace preserved, got %#v", chunk)
 	}
 	if chunk := expect(); chunk.Type != ChunkThinking || chunk.Content != "Additional insight" {
 		t.Fatalf("expected reasoning_content payload, got %#v", chunk)
