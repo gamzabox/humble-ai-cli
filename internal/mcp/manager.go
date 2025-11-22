@@ -47,6 +47,7 @@ type serverConfig struct {
 	Command     string
 	Args        []string
 	Env         map[string]string
+	Headers     map[string]string
 	URL         string
 	Type        string
 }
@@ -90,6 +91,16 @@ func (cfg serverConfig) connectionKind() (string, error) {
 	default:
 		return "", fmt.Errorf("mcp server %q has unsupported type %q", cfg.Name, cfg.Type)
 	}
+}
+
+func (cfg serverConfig) httpHeaders() map[string]string {
+	if len(cfg.Headers) > 0 {
+		return cfg.Headers
+	}
+	if strings.TrimSpace(cfg.URL) == "" {
+		return nil
+	}
+	return cfg.Env
 }
 
 type DebugLogger interface {
@@ -382,7 +393,7 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLog
 		return newSessionHolder(session, nil), nil
 
 	case connectionTypeSSE:
-		httpClient := httpClientWithHeaders(cfg.Env)
+		httpClient := httpClientWithHeaders(cfg.httpHeaders())
 		transport := &sdk.SSEClientTransport{
 			Endpoint:   cfg.URL,
 			HTTPClient: httpClient,
@@ -400,7 +411,7 @@ func defaultSessionDialer(ctx context.Context, cfg serverConfig, logger DebugLog
 		return newSessionHolder(session, nil), nil
 
 	case connectionTypeStreamableHTTP:
-		httpClient := httpClientWithHeaders(cfg.Env)
+		httpClient := httpClientWithHeaders(cfg.httpHeaders())
 		return connectStreamableHTTP(ctx, client, cfg, httpClient)
 	}
 
@@ -701,6 +712,7 @@ type rawServerConfig struct {
 	Command     string            `json:"command,omitempty"`
 	Args        []string          `json:"args,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
 	URL         string            `json:"url,omitempty"`
 	Type        string            `json:"type,omitempty"`
 	Transport   string            `json:"transport,omitempty"`
@@ -733,6 +745,7 @@ func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
 		Command:     strings.TrimSpace(raw.Command),
 		Args:        append([]string(nil), raw.Args...),
 		Env:         cloneStringMap(raw.Env),
+		Headers:     cloneStringMap(raw.Headers),
 		URL:         strings.TrimSpace(raw.URL),
 		Type:        connType,
 	}
@@ -781,6 +794,9 @@ func equivalentServerConfig(a, b serverConfig) bool {
 		return false
 	}
 	if !stringMapEqual(a.Env, b.Env) {
+		return false
+	}
+	if !stringMapEqual(a.Headers, b.Headers) {
 		return false
 	}
 	return true

@@ -269,13 +269,11 @@ func TestDefaultSessionDialerConnectsSSEServer(t *testing.T) {
 	defer httpServer.Close()
 
 	cfg := serverConfig{
-		Name:      "remote-sse",
-		Enabled:   true,
-		URL:       httpServer.URL,
-		Type:      connectionTypeSSE,
-		Env: map[string]string{
-			"Authorization": "Bearer token",
-		},
+		Name:     "remote-sse",
+		Enabled:  true,
+		URL:      httpServer.URL,
+		Type:     connectionTypeSSE,
+		Headers:  map[string]string{"Authorization": "Bearer token"},
 	}
 
 	holder, err := defaultSessionDialer(ctx, cfg, nil)
@@ -346,13 +344,11 @@ func TestDefaultSessionDialerConnectsHTTPServer(t *testing.T) {
 	defer httpServer.Close()
 
 	cfg := serverConfig{
-		Name:      "remote-http",
-		Enabled:   true,
-		URL:       httpServer.URL,
-		Type:      connectionTypeStreamableHTTP,
-		Env: map[string]string{
-			"X-Test-Header": "1",
-		},
+		Name:     "remote-http",
+		Enabled:  true,
+		URL:      httpServer.URL,
+		Type:     connectionTypeStreamableHTTP,
+		Headers:  map[string]string{"X-Test-Header": "1"},
 	}
 
 	holder, err := defaultSessionDialer(ctx, cfg, nil)
@@ -386,6 +382,33 @@ func TestDefaultSessionDialerConnectsHTTPServer(t *testing.T) {
 	}
 	if !foundHeader {
 		t.Fatalf("expected X-Test-Header to be forwarded to remote HTTP server")
+	}
+}
+
+func TestLoadServerConfigsReadsHeaders(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	writeServerConfig(t, home, map[string]map[string]any{
+		"remote": {
+			"url": "https://example.com/mcp",
+			"type": connectionTypeSSE,
+			"headers": map[string]any{
+				"Authorization": "Bearer token",
+			},
+		},
+	})
+
+	configs, err := loadServerConfigs(home)
+	if err != nil {
+		t.Fatalf("loadServerConfigs() error = %v", err)
+	}
+	cfg, ok := configs["remote"]
+	if !ok {
+		t.Fatalf("expected config for remote server")
+	}
+	if cfg.Headers == nil || cfg.Headers["Authorization"] != "Bearer token" {
+		t.Fatalf("cfg.Headers = %#v, want Authorization header", cfg.Headers)
 	}
 }
 
