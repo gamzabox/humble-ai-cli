@@ -227,6 +227,12 @@
 - [ ] 안내 메시지 출력 기능을 구현한다.
 - [ ] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
+# OpenAI Tool Parameters 제거
+- [x] REQUIREMENTS.md/TASKS.md 에 OpenAI tools parameters 제거 요구사항을 반영한다.
+- [x] OpenAI tools 전달 로직을 검증하는 테스트를 추가한다.
+- [x] chooseFunction 외 tool parameters 가 제거되도록 구현을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # Streamable HTTP MCP 연결 실패 수정
 - [x] streamable HTTP MCP 서버 초기화 실패 현상을 재현하는 테스트를 작성한다.
 - [x] SSE 연결 실패 시 HTTP 연동으로 자동 전환하는 로직을 구현한다.

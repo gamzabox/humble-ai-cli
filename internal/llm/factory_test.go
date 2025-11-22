@@ -214,6 +214,59 @@ func TestBuildOllamaRequestIncludesNumCtxOption(t *testing.T) {
 	}
 }
 
+func TestBuildOpenAIToolsOmitsParametersExceptChooseFunction(t *testing.T) {
+	t.Parallel()
+
+	defs := []ToolDefinition{
+		testChooseFunctionDefinition(),
+		{
+			Name:        "context7__resolve-library-id",
+			Description: "Resolve Context7 IDs",
+			Server:      "context7",
+			Method:      "resolve-library-id",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"libraryName": map[string]any{"type": "string"},
+				},
+			},
+		},
+	}
+
+	tools, index := buildOpenAITools(defs)
+	if len(tools) != len(defs) {
+		t.Fatalf("expected %d tools, got %d", len(defs), len(tools))
+	}
+	if len(index) != len(defs) {
+		t.Fatalf("expected %d definitions, got %d", len(defs), len(index))
+	}
+
+	foundChoose := false
+	foundMCP := false
+
+	for _, tool := range tools {
+		switch tool.Function.Name {
+		case routeIntentToolName:
+			foundChoose = true
+			if tool.Function.Parameters == nil {
+				t.Fatalf("expected chooseFunction parameters to be present")
+			}
+			if _, ok := tool.Function.Parameters["properties"]; !ok {
+				t.Fatalf("expected chooseFunction parameters to include properties")
+			}
+		case "context7__resolve-library-id":
+			foundMCP = true
+			if tool.Function.Parameters != nil {
+				t.Fatalf("expected MCP tool parameters to be omitted, got %v", tool.Function.Parameters)
+			}
+		}
+	}
+
+	if !foundChoose || !foundMCP {
+		t.Fatalf("expected both chooseFunction and MCP tool definitions, found choose=%v mcp=%v", foundChoose, foundMCP)
+	}
+}
+
 func TestParseManualToolCallHandlesChooseFunction(t *testing.T) {
 	payload := "Let's pick a tool.\n```\n{\n  \"chooseFunction\": {\n    \"functionName\": \"context7__resolve-library-id\",\n    \"reason\": \"Need to resolve libraries\"\n  }\n}\n```"
 	calls, cleaned := parseManualToolCall(payload)

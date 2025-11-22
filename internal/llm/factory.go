@@ -473,11 +473,13 @@ func buildOpenAITools(defs []ToolDefinition) ([]openAITool, map[string]ToolDefin
 	index := make(map[string]ToolDefinition, len(defs))
 
 	for _, def := range defs {
-		parameters := cloneAnyMap(def.Parameters)
-		if parameters == nil {
-			parameters = defaultToolSchema()
+		var parameters map[string]any
+		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
+			parameters = cloneAnyMap(def.Parameters)
+			if parameters == nil {
+				parameters = defaultToolSchema()
+			}
 		}
-
 		out = append(out, openAITool{
 			Type: "function",
 			Function: openAIToolSignature{

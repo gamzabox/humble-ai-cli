@@ -9,6 +9,7 @@
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
 - MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
+- OpenAI API 호출 시 `tools` 필드에는 `chooseFunction` 을 제외한 MCP tool 의 `parameters`(input schema) 를 포함하지 않는다. 모든 MCP tool schema 는 `chooseFunction` 호출을 통해 전달받는다.
 - MCP Tool name 과 description 을 다음과 같이 생성 하고 가장 아래에 Function Call Schema and Example 도 추가한다.
 - 이 내용은 system prompt 하단에 포함해 함께 전달한다.
 
