@@ -697,7 +697,8 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	}
 
 	systemPrompt := a.systemPrompt
-	if contextPrompt := toolContextPrompt(toolDefs); strings.TrimSpace(contextPrompt) != "" {
+	includeToolListing := !strings.EqualFold(activeModel.Provider, "openai")
+	if contextPrompt := toolContextPrompt(toolDefs, includeToolListing); strings.TrimSpace(contextPrompt) != "" {
 		if strings.TrimSpace(systemPrompt) != "" {
 			systemPrompt = strings.TrimRight(systemPrompt, "\n") + "\n\n" + contextPrompt
 		} else {
@@ -1110,66 +1111,81 @@ func (a *App) availableToolDefinitions() []llm.ToolDefinition {
 	return defs
 }
 
-func toolContextPrompt(defs []llm.ToolDefinition) string {
+func toolContextPrompt(defs []llm.ToolDefinition, includeToolListing bool) string {
 	type toolEntry struct {
 		name        string
 		description string
 	}
 
-	builder := strings.Builder{}
-	builder.WriteString("# Connected Tools\n\n")
+	if includeToolListing {
+		builder := strings.Builder{}
+		builder.WriteString("# Connected Tools\n\n")
 
-	groups := make(map[string][]toolEntry)
+		groups := make(map[string][]toolEntry)
+		for _, def := range defs {
+			if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
+				continue
+			}
+			server := strings.TrimSpace(def.Server)
+			if server == "" {
+				server = "default"
+			}
+			desc := strings.TrimSpace(def.Description)
+			if desc == "" {
+				desc = "No description provided."
+			}
+			groups[server] = append(groups[server], toolEntry{
+				name:        def.Name,
+				description: desc,
+			})
+		}
+
+		if len(groups) == 0 {
+			builder.WriteString("NO FUNCTION CONNECTED\n")
+		} else {
+			serverNames := make([]string, 0, len(groups))
+			for server := range groups {
+				serverNames = append(serverNames, server)
+			}
+			sort.Strings(serverNames)
+
+			for _, server := range serverNames {
+				builder.WriteString("## MCP Server: ")
+				builder.WriteString(server)
+				builder.WriteString("\n\n")
+
+				entries := groups[server]
+				sort.Slice(entries, func(i, j int) bool {
+					return entries[i].name < entries[j].name
+				})
+
+				for _, entry := range entries {
+					builder.WriteString("- function name: **")
+					builder.WriteString(entry.name)
+					builder.WriteString("**\n")
+					builder.WriteString("- description: ")
+					builder.WriteString(entry.description)
+					builder.WriteString("\n\n")
+				}
+			}
+		}
+
+		schemaBlock := functionCallSchemaPrompt
+		if strings.HasPrefix(schemaBlock, "\n") {
+			builder.WriteString(strings.TrimPrefix(schemaBlock, "\n"))
+		} else {
+			builder.WriteString(schemaBlock)
+		}
+		return strings.TrimRight(builder.String(), "\n")
+	}
+
 	for _, def := range defs {
 		if def.Server == routeIntentServerName && def.Name == routeIntentToolName {
 			continue
 		}
-		server := strings.TrimSpace(def.Server)
-		if server == "" {
-			server = "default"
-		}
-		desc := strings.TrimSpace(def.Description)
-		if desc == "" {
-			desc = "No description provided."
-		}
-		groups[server] = append(groups[server], toolEntry{
-			name:        def.Name,
-			description: desc,
-		})
+		return ""
 	}
-
-	if len(groups) == 0 {
-		builder.WriteString("**NO FUNCTION CONNECTED**\n")
-	} else {
-		serverNames := make([]string, 0, len(groups))
-		for server := range groups {
-			serverNames = append(serverNames, server)
-		}
-		sort.Strings(serverNames)
-
-		for _, server := range serverNames {
-			builder.WriteString("## MCP Server: ")
-			builder.WriteString(server)
-			builder.WriteString("\n\n")
-
-			entries := groups[server]
-			sort.Slice(entries, func(i, j int) bool {
-				return entries[i].name < entries[j].name
-			})
-
-			for _, entry := range entries {
-				builder.WriteString("- function name: **")
-				builder.WriteString(entry.name)
-				builder.WriteString("**\n")
-				builder.WriteString("- description: ")
-				builder.WriteString(entry.description)
-				builder.WriteString("\n\n")
-			}
-		}
-	}
-
-	builder.WriteString(functionCallSchemaPrompt)
-	return strings.TrimRight(builder.String(), "\n")
+	return "NO FUNCTION CONNECTED"
 }
 
 const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"

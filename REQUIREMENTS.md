@@ -6,7 +6,7 @@
 - `config.json` 의 `contextRetentionTurns` 값으로 user prompt 전송 시 과거 context 를 몇 turn 까지 포함할지 제어한다. 값을 설정하지 않으면 기본 3 turn 을 유지하고, 0 이면 직전 context 없이 현재 user 입력만 전송한다. 음수이면 전체 history 를 전송한다. turn 은 user-assistant message 쌍을 의미하지만 session history 에 user content 만 존재하고 assistant 가 없을 경우 해당 user 만 하나의 turn 으로 간주한다.
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
 - Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 system prompt 에 직접 포함해 전달한다.
-- 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.
+- 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `NO FUNCTION CONNECTED` 문구를 출력해 툴 목록 대신 안내한다.
 - MCP tool input schema 는 System prompt 에 포함하지 않고, LLM 이 `chooseFunction` 을 호출해 schema 를 요청할 때 tool 별 schema 를 전달한다.
 - MCP tool name 은 `<server_name>__<tool_name>` 포맷으로 서버 이름을 네임스페이스로 포함해야 한다.
 - OpenAI API 호출 시 `tools` 필드에는 `chooseFunction` 을 제외한 MCP tool 의 `parameters`(input schema) 를 포함하지 않는다. 모든 MCP tool schema 는 `chooseFunction` 호출을 통해 전달받는다.
@@ -148,7 +148,8 @@ Ask minimal questions required to make the next legitimate function call.
 ---
 
 ```
-- System prompt 하단에는 항상 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 이어 붙여 전달한다. 연결된 MCP tool 이 없으면 `**NO FUNCTION CONNECTED**` 를 포함한다.
+- Ollama 모델 요청에는 system prompt 하단에 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 이어 붙여 전달하고, 연결된 MCP tool 이 없으면 `NO FUNCTION CONNECTED` 문구를 포함한다.
+- OpenAI 모델 요청에는 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 모두 생략한다. 단, 연결된 MCP tool 이 없으면 `NO FUNCTION CONNECTED` 문구만 별도로 출력해 도구 부재를 알린다.
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.

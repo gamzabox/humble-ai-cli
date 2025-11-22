@@ -50,7 +50,7 @@ func testToolPrompt(server, toolName, description string) string {
 }
 
 func testNoToolPrompt() string {
-	return "# Connected Tools\n\n**NO FUNCTION CONNECTED**\n" + testFunctionCallSchemaBlock
+	return "# Connected Tools\n\nNO FUNCTION CONNECTED\n" + testFunctionCallSchemaBlock
 }
 
 const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"context7\",\n    \"name\": \"context7__resolve-library-id\",\n    \"arguments\": {\n      \"libraryName\": \"golang mcp sdk\"\n    },\n    \"reason\": \"To retrieve the correct Context7-compatible library ID for the Go language MCP SDK, which is required to fetch its documentation.\"\n  }\n}\n"
@@ -171,7 +171,7 @@ func TestBuildOllamaRequestEmbedsNoToolConnectedPromptInSystem(t *testing.T) {
 	if !strings.Contains(systemMsg.Content, "# Connected Tools") {
 		t.Fatalf("system prompt missing connected tools block, got %q", systemMsg.Content)
 	}
-	if !strings.Contains(systemMsg.Content, "**NO FUNCTION CONNECTED**") {
+	if !strings.Contains(systemMsg.Content, "NO FUNCTION CONNECTED") {
 		t.Fatalf("expected no function connected notice, got %q", systemMsg.Content)
 	}
 

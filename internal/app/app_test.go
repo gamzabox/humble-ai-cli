@@ -1603,8 +1603,14 @@ func TestAppNewCommandStartsFreshSession(t *testing.T) {
 		if len(req.Messages) != 1 {
 			t.Fatalf("expected request %d to contain 1 message, got %d", i, len(req.Messages))
 		}
-		if !strings.Contains(req.SystemPrompt, "# Connected Tools") {
-			t.Fatalf("expected system prompt to include connected tools in request %d, got %q", i, req.SystemPrompt)
+		if strings.Contains(req.SystemPrompt, "# Connected Tools") {
+			t.Fatalf("did not expect connected tools section for openai request %d, got %q", i, req.SystemPrompt)
+		}
+		if strings.Contains(req.SystemPrompt, "# Function Call Schema and Example") {
+			t.Fatalf("did not expect function call schema guidance in request %d, got %q", i, req.SystemPrompt)
+		}
+		if !strings.Contains(req.SystemPrompt, "NO FUNCTION CONNECTED") {
+			t.Fatalf("expected fallback notice in request %d, got %q", i, req.SystemPrompt)
 		}
 		if req.Messages[0].Role != "user" {
 			t.Fatalf("expected user prompt as first message in request %d, got %#v", i, req.Messages[0])
@@ -1817,8 +1823,14 @@ func TestAppInitializesSystemPromptFromCodeAndCreatesUserRulesFile(t *testing.T)
 	if !strings.Contains(prompt, "Ask minimal questions required to make the next legitimate function call.") {
 		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "# Connected Tools") {
-		t.Fatalf("expected final system prompt to include connected tools list, got:\n%s", prompt)
+	if strings.Contains(prompt, "# Connected Tools") {
+		t.Fatalf("did not expect connected tools section in openai prompt, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "# Function Call Schema and Example") {
+		t.Fatalf("did not expect function call schema guidance in prompt, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "NO FUNCTION CONNECTED") {
+		t.Fatalf("did not expect fallback notice when tools exist, got:\n%s", prompt)
 	}
 }
 
@@ -1899,12 +1911,11 @@ func TestAppAppendsUserRulesToSystemPrompt(t *testing.T) {
 	if idxRules == -1 {
 		t.Fatalf("expected system prompt to contain user rules, got:\n%s", prompt)
 	}
-	idxConnected := strings.Index(prompt, "# Connected Tools")
-	if idxConnected == -1 {
-		t.Fatalf("expected connected tools section in final prompt, got:\n%s", prompt)
+	if strings.Contains(prompt, "# Function Call Schema and Example") {
+		t.Fatalf("did not expect schema guidance in final prompt, got:\n%s", prompt)
 	}
-	if idxRules > idxConnected {
-		t.Fatalf("expected user rules to appear before connected tools section, got prompt:\n%s", prompt)
+	if strings.Contains(prompt, "NO FUNCTION CONNECTED") {
+		t.Fatalf("did not expect fallback notice when tools exist, got:\n%s", prompt)
 	}
 }
 

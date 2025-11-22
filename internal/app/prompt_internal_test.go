@@ -7,7 +7,7 @@ import (
 	"github.com/gamzabox/humble-ai-cli/internal/llm"
 )
 
-func TestToolContextPromptIncludesFunctions(t *testing.T) {
+func TestToolContextPromptIncludesFunctionsWhenListingEnabled(t *testing.T) {
 	t.Parallel()
 
 	defs := []llm.ToolDefinition{
@@ -20,7 +20,7 @@ func TestToolContextPromptIncludesFunctions(t *testing.T) {
 		},
 	}
 
-	prompt := toolContextPrompt(defs)
+	prompt := toolContextPrompt(defs, true)
 	if !strings.Contains(prompt, "# Connected Tools") {
 		t.Fatalf("expected connected tools heading, got %q", prompt)
 	}
@@ -44,11 +44,37 @@ func TestToolContextPromptIncludesFunctions(t *testing.T) {
 func TestToolContextPromptShowsFallbackNotice(t *testing.T) {
 	t.Parallel()
 
-	prompt := toolContextPrompt([]llm.ToolDefinition{routeIntentToolDefinition()})
-	if !strings.Contains(prompt, "**NO FUNCTION CONNECTED**") {
+	prompt := toolContextPrompt([]llm.ToolDefinition{routeIntentToolDefinition()}, true)
+	if !strings.Contains(prompt, "NO FUNCTION CONNECTED") {
 		t.Fatalf("expected fallback notice, got %q", prompt)
+	}
+	if strings.Contains(prompt, "**") {
+		t.Fatalf("expected fallback notice without emphasis, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
+	}
+}
+
+func TestToolContextPromptSkipsListingWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	defs := []llm.ToolDefinition{
+		routeIntentToolDefinition(),
+		{
+			Name:        "context7__resolve-library-id",
+			Description: "Resolve IDs",
+			Server:      "context7",
+			Method:      "resolve-library-id",
+		},
+	}
+
+	prompt := toolContextPrompt(defs, false)
+	if strings.TrimSpace(prompt) != "" {
+		t.Fatalf("expected empty prompt when listing disabled and tools exist, got %q", prompt)
+	}
+	emptyPrompt := toolContextPrompt([]llm.ToolDefinition{routeIntentToolDefinition()}, false)
+	if emptyPrompt != "NO FUNCTION CONNECTED" {
+		t.Fatalf("expected fallback notice without schema, got %q", emptyPrompt)
 	}
 }

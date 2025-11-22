@@ -249,6 +249,18 @@
 - [x] System prompt 에 연결된 MCP 정보와 스키마 예시를 포함하도록 구현을 업데이트한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
+# OpenAI System Prompt Connected Tools 제거
+- [x] REQUIREMENTS.md/TASKS.md 에 OpenAI system prompt 변경 요구사항을 반영한다.
+- [x] OpenAI system prompt 가 Connected Tools 섹션을 제외하고 Function Call Schema/NO FUNCTION CONNECTED 안내를 유지하는 테스트를 수정한다.
+- [x] App/system prompt 구성 로직을 수정해 provider 별로 Connected Tools 섹션 포함 여부를 제어한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# OpenAI System Prompt Function Schema 제거
+- [x] REQUIREMENTS.md/TASKS.md 에 Function Call Schema 제거 요구사항을 반영한다.
+- [x] toolContextPrompt 및 system prompt 구성 로직을 업데이트한다.
+- [x] OpenAI system prompt 관련 테스트를 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # Context Chunking On/Off
 - [x] REQUIREMENTS.md/TASKS.md 에 context chunking on/off 요구사항을 정리한다.
 - [x] context chunking 이 기본적으로 비활성화되는 테스트를 먼저 작성/수정한다.
