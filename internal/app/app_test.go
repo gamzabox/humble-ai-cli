@@ -89,6 +89,58 @@ func writeMCPServersConfig(t *testing.T, home string, servers map[string]map[str
 	}
 }
 
+func intPtr(v int) *int {
+	return &v
+}
+
+func runContextRetentionRequests(t *testing.T, retention *int, prompts []string) []llm.ChatRequest {
+	t.Helper()
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	cfg := config.Config{
+		ContextRetentionTurns: retention,
+		Models: []config.Model{
+			{Name: "retention-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+		},
+	}
+	store := &stubStore{cfg: cfg}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "OK"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("retention-model", provider)
+
+	lines := append([]string{}, prompts...)
+	lines = append(lines, "/exit")
+	input := strings.Join(lines, "\n") + "\n"
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          strings.NewReader(input),
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+		MCP:            &stubMCP{},
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	return provider.Requests()
+}
+
 type recordingProvider struct {
 	mu       sync.Mutex
 	requests []llm.ChatRequest
@@ -112,6 +164,47 @@ func (p *recordingProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-
 }
 
 func (p *recordingProvider) Requests() []llm.ChatRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]llm.ChatRequest, len(p.requests))
+	copy(out, p.requests)
+	return out
+}
+
+type sequencedRecordingProvider struct {
+	mu        sync.Mutex
+	responses []string
+	requests  []llm.ChatRequest
+	index     int
+}
+
+func newSequencedRecordingProvider(responses ...string) *sequencedRecordingProvider {
+	return &sequencedRecordingProvider{responses: responses}
+}
+
+func (p *sequencedRecordingProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-chan llm.StreamChunk, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, req)
+	idx := p.index
+	p.index++
+	var resp string
+	if idx < len(p.responses) {
+		resp = p.responses[idx]
+	}
+	p.mu.Unlock()
+
+	out := make(chan llm.StreamChunk, 2)
+	go func() {
+		if resp != "" {
+			out <- llm.StreamChunk{Type: llm.ChunkToken, Content: resp}
+		}
+		out <- llm.StreamChunk{Type: llm.ChunkDone}
+		close(out)
+	}()
+	return out, nil
+}
+
+func (p *sequencedRecordingProvider) Requests() []llm.ChatRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]llm.ChatRequest, len(p.requests))
@@ -1206,6 +1299,152 @@ func TestAppChunksOverlongUserContextWithCustomLimit(t *testing.T) {
 	}
 }
 
+func TestAppContextRetentionTurns(t *testing.T) {
+	t.Run("defaultsToLastThreeTurns", func(t *testing.T) {
+		requests := runContextRetentionRequests(t, nil, []string{"one", "two", "three", "four", "five"})
+		if len(requests) != 5 {
+			t.Fatalf("expected 5 requests for 5 prompts, got %d", len(requests))
+		}
+		req := requests[4]
+		if len(req.Messages) != 7 {
+			t.Fatalf("expected 7 messages (3 turns + new user), got %d", len(req.Messages))
+		}
+		if req.Messages[0].Content != "two" {
+			t.Fatalf("expected first retained message to be 'two', got %q", req.Messages[0].Content)
+		}
+		if containsMessageContent(req.Messages, "one") {
+			t.Fatalf("expected default retention to drop the oldest turn")
+		}
+		if last := req.Messages[len(req.Messages)-1]; last.Role != "user" || last.Content != "five" {
+			t.Fatalf("expected last message to be the current user prompt, got %#v", last)
+		}
+	})
+
+	t.Run("limitsToConfiguredTurns", func(t *testing.T) {
+		requests := runContextRetentionRequests(t, intPtr(2), []string{"one", "two", "three", "four"})
+		if len(requests) != 4 {
+			t.Fatalf("expected 4 requests, got %d", len(requests))
+		}
+		req := requests[3]
+		if len(req.Messages) != 5 {
+			t.Fatalf("expected 5 messages (2 turns + new user), got %d", len(req.Messages))
+		}
+		if req.Messages[0].Content != "two" {
+			t.Fatalf("expected retained context to start at the second prompt, got %q", req.Messages[0].Content)
+		}
+		if containsMessageContent(req.Messages, "one") {
+			t.Fatalf("expected configured retention to drop the oldest turn")
+		}
+	})
+
+	t.Run("zeroDisablesHistory", func(t *testing.T) {
+		requests := runContextRetentionRequests(t, intPtr(0), []string{"one", "two"})
+		if len(requests) != 2 {
+			t.Fatalf("expected 2 requests, got %d", len(requests))
+		}
+		req := requests[1]
+		if len(req.Messages) != 1 {
+			t.Fatalf("expected only the current user prompt when retention is disabled, got %d messages", len(req.Messages))
+		}
+		if msg := req.Messages[0]; msg.Role != "user" || msg.Content != "two" {
+			t.Fatalf("expected request to only include the second prompt, got %#v", msg)
+		}
+	})
+
+	t.Run("negativeKeepsFullHistory", func(t *testing.T) {
+		requests := runContextRetentionRequests(t, intPtr(-1), []string{"one", "two", "three"})
+		if len(requests) != 3 {
+			t.Fatalf("expected 3 requests, got %d", len(requests))
+		}
+		req := requests[2]
+		if len(req.Messages) != 5 {
+			t.Fatalf("expected entire history (2 turns) plus new user, got %d messages", len(req.Messages))
+		}
+		if req.Messages[0].Content != "one" {
+			t.Fatalf("expected retained context to keep the earliest prompt when retention is negative, got %q", req.Messages[0].Content)
+		}
+	})
+}
+
+func TestAppContextRetentionHandlesChunkedAssistantTurns(t *testing.T) {
+	retention := 1
+	const legacyMarker = "legacy context payload"
+	const recentMarker = "recent turn content"
+
+	store := &stubStore{
+		cfg: config.Config{
+			ContextChunkSize:      5,
+			ContextRetentionTurns: &retention,
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := newSequencedRecordingProvider(
+		legacyMarker,
+		strings.Repeat(recentMarker+" ", 200),
+		"final turn",
+	)
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader("first question\nsecond question\nthird question\n/exit\n")
+	home := t.TempDir()
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+		MCP:            &stubMCP{},
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("expected 3 requests, got %d", len(requests))
+	}
+	finalReq := requests[2]
+	if len(finalReq.Messages) < 2 {
+		t.Fatalf("expected prior context plus new user in final request, got %d messages", len(finalReq.Messages))
+	}
+	last := finalReq.Messages[len(finalReq.Messages)-1]
+	if last.Role != "user" || last.Content != "third question" {
+		t.Fatalf("expected final message to be the third prompt, got %#v", last)
+	}
+
+	assistantSegments := 0
+	for _, msg := range finalReq.Messages[:len(finalReq.Messages)-1] {
+		if strings.Contains(msg.Content, legacyMarker) {
+			t.Fatalf("expected retention=1 to drop legacy turn, but found content %q", msg.Content)
+		}
+		if msg.Role == "assistant" {
+			assistantSegments++
+			if strings.TrimSpace(msg.Content) == "" {
+				continue
+			}
+			if !strings.Contains(msg.Content, recentMarker) {
+				t.Fatalf("expected assistant chunk to belong to recent turn, got %q", msg.Content)
+			}
+		}
+	}
+	if assistantSegments < 2 {
+		t.Fatalf("expected assistant response to be chunked into multiple segments, got %d chunks", assistantSegments)
+	}
+}
+
 func TestAppNewCommandStartsFreshSession(t *testing.T) {
 	home := t.TempDir()
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
@@ -1566,6 +1805,15 @@ func TestAppAppendsUserRulesToSystemPrompt(t *testing.T) {
 	if idxRules > idxConnected {
 		t.Fatalf("expected user rules to appear before connected tools section, got prompt:\n%s", prompt)
 	}
+}
+
+func containsMessageContent(messages []llm.Message, target string) bool {
+	for _, msg := range messages {
+		if msg.Content == target {
+			return true
+		}
+	}
+	return false
 }
 
 func firstDifference(a, b string) int {

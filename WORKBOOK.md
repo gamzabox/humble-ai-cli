@@ -617,3 +617,13 @@ Humble AI CLI version 1.0.0
 - user-rules.md 파일의 내용을 읽어 system prompt 마지막에 추가
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+
+# 최근 몇번째 turn 까지만 context 를 유지하는 기능 추가
+- user prompt 입력시 context 를 contextRetentionTurns 에 설정된 수 만큼의 turn 만 적용 함. 기본값은 3 turn
+- contextRetentionTurns 설정이 0 이면 user prompt 입력시 context 없이 진행 됨
+- contextRetentionTurns 설정이 음수 이면 전체 context 를 적용
+- user-assistant 의 content 쌍이 한 turn 이 됨
+- session history에 user content 만 존재하고, assistant content 가 없을경우 user content 만을 하나의 turn 으로 간주함
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

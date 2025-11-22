@@ -261,3 +261,9 @@
 - [x] Windows ANSI 출력 모드 보장을 검증하는 테스트를 먼저 작성한다.
 - [x] Windows ANSI 출력 모드를 활성화하는 로직을 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Context Retention Turns
+- [x] REQUIREMENTS.md/README.md 에 contextRetentionTurns 요구사항을 반영한다.
+- [x] contextRetentionTurns 동작을 검증하는 테스트를 작성한다.
+- [x] contextRetentionTurns 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

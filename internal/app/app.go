@@ -120,7 +120,10 @@ const (
 	modeResponding
 )
 
-const defaultOllamaNumCtx = 30000
+const (
+	defaultOllamaNumCtx        = 30000
+	defaultContextRetentionTurns = 3
+)
 
 var errToolDeclined = errors.New("mcp call declined by user")
 
@@ -668,10 +671,13 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		return fmt.Errorf("create provider: %w", err)
 	}
 
+	retention := defaultContextRetentionTurns
+	if cfg.ContextRetentionTurns != nil {
+		retention = *cfg.ContextRetentionTurns
+	}
+
 	toolDefs := a.availableToolDefinitions()
-	history := append([]llm.Message{}, a.messages...)
-	requestMessages := make([]llm.Message, 0, len(history)+1)
-	requestMessages = append(requestMessages, history...)
+	requestMessages := retainRecentTurns(a.messages, retention)
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
 
 	if a.contextChunker != nil {
@@ -1442,6 +1448,47 @@ func (a *App) shouldExit() bool {
 	a.modeMu.Lock()
 	defer a.modeMu.Unlock()
 	return a.exitRequested
+}
+
+func retainRecentTurns(history []llm.Message, limit int) []llm.Message {
+	if len(history) == 0 {
+		return nil
+	}
+	if limit == 0 {
+		return nil
+	}
+	if limit < 0 {
+		return cloneMessages(history)
+	}
+
+	userStarts := make([]int, 0, len(history))
+	for idx, msg := range history {
+		if msg.Role == "user" {
+			userStarts = append(userStarts, idx)
+		}
+	}
+	if len(userStarts) == 0 {
+		return cloneMessages(history)
+	}
+
+	startPos := len(userStarts) - limit
+	if startPos < 0 {
+		startPos = 0
+	}
+	startIdx := userStarts[startPos]
+	trimmed := history[startIdx:]
+	out := make([]llm.Message, len(trimmed))
+	copy(out, trimmed)
+	return out
+}
+
+func cloneMessages(messages []llm.Message) []llm.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]llm.Message, len(messages))
+	copy(out, messages)
+	return out
 }
 
 func sanitizeTitle(input string) string {

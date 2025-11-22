@@ -2,6 +2,7 @@
 - CLI 를 통해 LLM 과 대화 기능을 제공 할것
 - 대화의 Context 를 유지 할 것
 - 하나의 대화 Context 를 chunk 로 분할하는 기능은 `config.json` 의 `contextChunkSize` 값이 양수로 설정된 경우에만 동작하며, 설정하지 않거나 0 이하일 경우 chunking 을 수행하지 않는다. chunking 활성화 시 BPE 계열 tokenizer 로 token 수를 측정해 `contextChunkSize` 토큰 단위로 순차 chunk 를 만들어 context 에 추가 할 것.
+- `config.json` 의 `contextRetentionTurns` 값으로 user prompt 전송 시 과거 context 를 몇 turn 까지 포함할지 제어한다. 값을 설정하지 않으면 기본 3 turn 을 유지하고, 0 이면 직전 context 없이 현재 user 입력만 전송한다. 음수이면 전체 history 를 전송한다. turn 은 user-assistant message 쌍을 의미하지만 session history 에 user content 만 존재하고 assistant 가 없을 경우 해당 user 만 하나의 turn 으로 간주한다.
 - OpenAI 와 Ollama API 와 연계 할 수 있어야 함
 - Ollama API 를 호출할 때 MCP tool List 는 API `tools` 필드를 사용하지 말고 system prompt 에 직접 포함해 전달한다.
 - 활성화된 MCP Server 가 없을 경우 MCP tool schema 프롬프트 영역에는 `**NO FUNCTION CONNECTED**` 문구를 출력해 툴 목록 대신 안내한다.

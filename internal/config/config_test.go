@@ -17,11 +17,13 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	}
 
 	cfgPath := filepath.Join(configDir, "config.json")
+	retention := 4
 	input := config.Config{
-		LogLevel:         "debug",
-		ToolCallMode:     "auto",
-		ContextChunkSize: 2048,
-		OllamaNumCtx:     6144,
+		LogLevel:              "debug",
+		ToolCallMode:          "auto",
+		ContextChunkSize:      2048,
+		ContextRetentionTurns: &retention,
+		OllamaNumCtx:          6144,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -47,6 +49,9 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.ContextChunkSize != input.ContextChunkSize {
 		t.Fatalf("unexpected contextChunkSize: %d", got.ContextChunkSize)
 	}
+	if got.ContextRetentionTurns == nil || *got.ContextRetentionTurns != retention {
+		t.Fatalf("unexpected contextRetentionTurns: %v", got.ContextRetentionTurns)
+	}
 	if got.OllamaNumCtx != input.OllamaNumCtx {
 		t.Fatalf("unexpected ollamaNumCtx: %d", got.OllamaNumCtx)
 	}
@@ -69,11 +74,13 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	home := t.TempDir()
 	store := config.NewFileStore(home)
 
+	retention := 6
 	cfg := config.Config{
-		LogLevel:         "warn",
-		ToolCallMode:     "manual",
-		ContextChunkSize: 3072,
-		OllamaNumCtx:     8192,
+		LogLevel:              "warn",
+		ToolCallMode:          "manual",
+		ContextChunkSize:      3072,
+		ContextRetentionTurns: &retention,
+		OllamaNumCtx:          8192,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -104,6 +111,9 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if got.ContextChunkSize != cfg.ContextChunkSize {
 		t.Fatalf("unexpected contextChunkSize in persisted config: %d", got.ContextChunkSize)
+	}
+	if got.ContextRetentionTurns == nil || *got.ContextRetentionTurns != retention {
+		t.Fatalf("unexpected contextRetentionTurns in persisted config: %v", got.ContextRetentionTurns)
 	}
 	if got.OllamaNumCtx != cfg.OllamaNumCtx {
 		t.Fatalf("unexpected ollamaNumCtx in persisted config: %d", got.OllamaNumCtx)

@@ -34,11 +34,12 @@ const (
 
 // Config captures CLI configuration.
 type Config struct {
-	LogLevel         string  `json:"logLevel,omitempty"`
-	ToolCallMode     string  `json:"toolCallMode,omitempty"`
-	ContextChunkSize int     `json:"contextChunkSize,omitempty"`
-	OllamaNumCtx     int     `json:"ollamaNumCtx,omitempty"`
-	Models           []Model `json:"models,omitempty"`
+	LogLevel              string  `json:"logLevel,omitempty"`
+	ToolCallMode          string  `json:"toolCallMode,omitempty"`
+	ContextChunkSize      int     `json:"contextChunkSize,omitempty"`
+	ContextRetentionTurns *int    `json:"contextRetentionTurns,omitempty"`
+	OllamaNumCtx          int     `json:"ollamaNumCtx,omitempty"`
+	Models                []Model `json:"models,omitempty"`
 }
 
 // FindModel locates a model by name.
