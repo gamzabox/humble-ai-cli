@@ -35,8 +35,9 @@ build_target() {
 		go build -trimpath -ldflags "${LDFLAGS}" -o "${DIST_DIR}/${outfile}" .
 }
 
-build_target linux amd64 humble-ai-cli
-build_target windows amd64 humble-ai-cli_amd64.exe
-build_target windows arm64 humble-ai-cli_arm64.exe
+build_target linux amd64 humble-ai-cli_linux_amd64
+build_target linux arm64 humble-ai-cli_linux_arm64
+build_target windows amd64 humble-ai-cli_win_amd64.exe
+build_target windows arm64 humble-ai-cli_win_arm64.exe
 
 echo "Artifacts written to ${DIST_DIR}"
