@@ -35,7 +35,7 @@ func (realClock) Now() time.Time {
 
 // ProviderFactory resolves model configurations to streaming providers.
 type ProviderFactory interface {
-	Create(config.Model) (llm.ChatProvider, error)
+	Create(config.Model, int) (llm.ChatProvider, error)
 }
 
 // MCPServer describes a configured MCP server surfaced to the LLM.
@@ -86,13 +86,14 @@ type App struct {
 	version     string
 	buildDate   string
 
-	systemPrompt   string
-	logger         *logging.Logger
-	contextChunker *contextChunker
-	mcp            MCPExecutor
-	mcpServers     map[string]MCPServer
-	mcpFunctions   map[string][]MCPFunction
-	mcpMu          sync.RWMutex
+	systemPrompt      string
+	logger            *logging.Logger
+	contextChunker    *contextChunker
+	contextChunkLimit int
+	mcp               MCPExecutor
+	mcpServers        map[string]MCPServer
+	mcpFunctions      map[string][]MCPFunction
+	mcpMu             sync.RWMutex
 
 	cfgMu sync.RWMutex
 	cfg   config.Config
@@ -121,7 +122,7 @@ const (
 )
 
 const (
-	defaultOllamaNumCtx        = 30000
+	defaultOllamaNumCtx          = 30000
 	defaultContextRetentionTurns = 3
 )
 
@@ -208,7 +209,7 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("initialize logger: %w", err)
 	}
 
-	chunkLimit := resolveContextChunkLimit(cfg.ContextChunkSize)
+	chunkLimit := resolveContextChunkLimit(cfg.OllamaContextChunkSize)
 	var chunker *contextChunker
 	if chunkLimit > 0 {
 		chunker, err = newContextChunker(chunkLimit)
@@ -223,23 +224,24 @@ func New(opts Options) (*App, error) {
 	}
 
 	app := &App{
-		store:          opts.Store,
-		factory:        opts.Factory,
-		output:         opts.Output,
-		errOutput:      errOutput,
-		historyRoot:    historyRoot,
-		homeDir:        home,
-		clock:          clock,
-		version:        version,
-		buildDate:      opts.BuildDate,
-		systemPrompt:   "",
-		logger:         logger,
-		contextChunker: chunker,
-		mcp:            mcpExec,
-		mcpServers:     serverMap,
-		mcpFunctions:   make(map[string][]MCPFunction),
-		cfg:            cfg,
-		mode:           modeInput,
+		store:             opts.Store,
+		factory:           opts.Factory,
+		output:            opts.Output,
+		errOutput:         errOutput,
+		historyRoot:       historyRoot,
+		homeDir:           home,
+		clock:             clock,
+		version:           version,
+		buildDate:         opts.BuildDate,
+		systemPrompt:      "",
+		logger:            logger,
+		contextChunker:    chunker,
+		contextChunkLimit: chunkLimit,
+		mcp:               mcpExec,
+		mcpServers:        serverMap,
+		mcpFunctions:      make(map[string][]MCPFunction),
+		cfg:               cfg,
+		mode:              modeInput,
 	}
 
 	app.lineReader = createLineReader(opts.Input, app.output, func() {
@@ -666,7 +668,12 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	fmt.Fprintln(a.output, "> Waiting for response...")
 
-	provider, err := a.factory.Create(activeModel)
+	chunkLimit := 0
+	if strings.EqualFold(activeModel.Provider, "ollama") {
+		chunkLimit = a.contextChunkLimit
+	}
+
+	provider, err := a.factory.Create(activeModel, chunkLimit)
 	if err != nil {
 		return fmt.Errorf("create provider: %w", err)
 	}
@@ -680,7 +687,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 	requestMessages := retainRecentTurns(a.messages, retention)
 	requestMessages = append(requestMessages, llm.Message{Role: "user", Content: content})
 
-	if a.contextChunker != nil {
+	if a.shouldChunkContext(cfg, activeModel) {
 		chunked, err := a.contextChunker.Chunk(requestMessages)
 		if err != nil {
 			a.logError("context chunking failed: %v", err)
@@ -1531,6 +1538,19 @@ func jsonMarshal(v any) ([]byte, error) {
 		return nil, fmt.Errorf("marshal history: %w", err)
 	}
 	return data, nil
+}
+
+func (a *App) shouldChunkContext(cfg config.Config, model config.Model) bool {
+	if a == nil || a.contextChunker == nil {
+		return false
+	}
+	if cfg.OllamaContextChunkSize <= 0 {
+		return false
+	}
+	if !strings.EqualFold(model.Provider, "ollama") {
+		return false
+	}
+	return true
 }
 
 func (a *App) sortedMCPServerNames() []string {

@@ -34,12 +34,15 @@ const (
 
 // Config captures CLI configuration.
 type Config struct {
-	LogLevel              string  `json:"logLevel,omitempty"`
-	ToolCallMode          string  `json:"toolCallMode,omitempty"`
-	ContextChunkSize      int     `json:"contextChunkSize,omitempty"`
-	ContextRetentionTurns *int    `json:"contextRetentionTurns,omitempty"`
-	OllamaNumCtx          int     `json:"ollamaNumCtx,omitempty"`
-	Models                []Model `json:"models,omitempty"`
+	LogLevel               string `json:"logLevel,omitempty"`
+	ToolCallMode           string `json:"toolCallMode,omitempty"`
+	OllamaContextChunkSize int    `json:"ollamaContextChunkSize,omitempty"`
+	// LegacyContextChunkSize exists for backward compatibility with the deprecated
+	// contextChunkSize field. It is always normalized into OllamaContextChunkSize.
+	LegacyContextChunkSize int     `json:"contextChunkSize,omitempty"`
+	ContextRetentionTurns  *int    `json:"contextRetentionTurns,omitempty"`
+	OllamaNumCtx           int     `json:"ollamaNumCtx,omitempty"`
+	Models                 []Model `json:"models,omitempty"`
 }
 
 // FindModel locates a model by name.
@@ -74,6 +77,7 @@ func (c Config) ActiveModelName() string {
 
 // Validate ensures configuration integrity.
 func (c Config) Validate() error {
+	c = c.withLegacyChunkSize()
 	activeCount := 0
 	for _, m := range c.Models {
 		if m.Active {
@@ -96,8 +100,8 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if c.ContextChunkSize < 0 {
-		return fmt.Errorf("contextChunkSize must be positive, got %d", c.ContextChunkSize)
+	if c.OllamaContextChunkSize < 0 {
+		return fmt.Errorf("ollamaContextChunkSize must be positive, got %d", c.OllamaContextChunkSize)
 	}
 
 	if c.OllamaNumCtx < 0 {
@@ -155,6 +159,7 @@ func (f *FileStore) Load() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
+	cfg.normalizeLegacyChunkSize()
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -166,6 +171,7 @@ func (f *FileStore) Save(cfg Config) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	cfg.normalizeLegacyChunkSize()
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -193,4 +199,19 @@ var validLogLevels = map[string]struct{}{
 	"info":  {},
 	"warn":  {},
 	"error": {},
+}
+
+func (c Config) withLegacyChunkSize() Config {
+	if c.OllamaContextChunkSize == 0 && c.LegacyContextChunkSize != 0 {
+		c.OllamaContextChunkSize = c.LegacyContextChunkSize
+	}
+	c.LegacyContextChunkSize = 0
+	return c
+}
+
+func (c *Config) normalizeLegacyChunkSize() {
+	if c == nil {
+		return
+	}
+	*c = c.withLegacyChunkSize()
 }

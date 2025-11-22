@@ -41,7 +41,7 @@ func NewFactory(client HTTPClient) *Factory {
 }
 
 // Create instantiates a provider for a model.
-func (f *Factory) Create(model config.Model) (ChatProvider, error) {
+func (f *Factory) Create(model config.Model, chunkLimit int) (ChatProvider, error) {
 	switch strings.ToLower(model.Provider) {
 	case "openai":
 		if model.APIKey == "" {
@@ -51,24 +51,20 @@ func (f *Factory) Create(model config.Model) (ChatProvider, error) {
 		if base == "" {
 			base = "https://api.openai.com/v1"
 		}
-		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
-		if err != nil {
-			return nil, fmt.Errorf("initialize tokenizer: %w", err)
-		}
 		return &openAIProvider{
 			client:  f.client,
 			baseURL: strings.TrimRight(base, "/"),
 			apiKey:  model.APIKey,
-			chunker: chunker,
+			chunker: nil,
 		}, nil
 	case "ollama":
 		base := model.BaseURL
 		if base == "" {
 			base = "http://localhost:11434"
 		}
-		chunker, err := tokenizer.NewChunker(tokenizer.DefaultChunkSize)
+		chunker, err := buildTokenizerChunker(chunkLimit)
 		if err != nil {
-			return nil, fmt.Errorf("initialize tokenizer: %w", err)
+			return nil, err
 		}
 		return &ollamaProvider{
 			client:  f.client,
@@ -82,6 +78,8 @@ func (f *Factory) Create(model config.Model) (ChatProvider, error) {
 
 var _ ChatProvider = (*openAIProvider)(nil)
 var _ ChatProvider = (*ollamaProvider)(nil)
+
+var errOpenAITemperatureUnsupported = errors.New("openai temperature unsupported")
 
 type openAIProvider struct {
 	client  HTTPClient
@@ -135,13 +133,44 @@ type openAIPassResult struct {
 	toolCalls        []toolCallRequest
 }
 
-func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages []openAIMessage, tools []openAITool, stream chan<- StreamChunk, thinkingSent *bool) (*openAIPassResult, error) {
+func (p *openAIProvider) streamOnce(
+	ctx context.Context,
+	model string,
+	messages []openAIMessage,
+	tools []openAITool,
+	stream chan<- StreamChunk,
+	thinkingSent *bool,
+) (*openAIPassResult, error) {
+	temperature := defaultTemperature
+	result, err := p.streamOnceWithTemperature(ctx, model, messages, tools, stream, thinkingSent, &temperature)
+	if err == nil {
+		return result, nil
+	}
+	if !errors.Is(err, errOpenAITemperatureUnsupported) {
+		return nil, err
+	}
+
+	if logger := LoggerFromContext(ctx); logger != nil {
+		logger.Debugf("OpenAI request retried without temperature override after unsupported value error")
+	}
+	return p.streamOnceWithTemperature(ctx, model, messages, tools, stream, thinkingSent, nil)
+}
+
+func (p *openAIProvider) streamOnceWithTemperature(
+	ctx context.Context,
+	model string,
+	messages []openAIMessage,
+	tools []openAITool,
+	stream chan<- StreamChunk,
+	thinkingSent *bool,
+	overrideTemperature *float64,
+) (*openAIPassResult, error) {
 	payload, err := json.Marshal(openAIRequestPayload{
 		Model:       model,
 		Stream:      true,
 		Messages:    messages,
 		Tools:       tools,
-		Temperature: defaultTemperature,
+		Temperature: overrideTemperature,
 	})
 	if err != nil {
 		return nil, err
@@ -166,6 +195,9 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	if resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		if overrideTemperature != nil && isOpenAITemperatureUnsupported(resp.StatusCode, body) {
+			return nil, fmt.Errorf("%w: openai response %d: %s", errOpenAITemperatureUnsupported, resp.StatusCode, strings.TrimSpace(string(body)))
+		}
 		return nil, fmt.Errorf("openai response %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -270,6 +302,27 @@ func (p *openAIProvider) streamOnce(ctx context.Context, model string, messages 
 	return &openAIPassResult{assistantMessage: assistantCall}, nil
 }
 
+func isOpenAITemperatureUnsupported(status int, body []byte) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	message := ""
+	if err := json.Unmarshal(body, &payload); err == nil {
+		message = payload.Error.Message
+	}
+	if strings.TrimSpace(message) == "" {
+		message = string(body)
+	}
+	normalized := strings.ToLower(message)
+	return strings.Contains(normalized, "temperature") && strings.Contains(normalized, "does not support")
+}
+
 func (p *openAIProvider) awaitToolResult(ctx context.Context, stream chan<- StreamChunk, defs map[string]ToolDefinition, call toolCallRequest) ([]openAIMessage, error) {
 	definition, ok := defs[call.Call.Function.Name]
 	if !ok {
@@ -370,7 +423,7 @@ type openAIRequestPayload struct {
 	Stream      bool            `json:"stream"`
 	Messages    []openAIMessage `json:"messages"`
 	Tools       []openAITool    `json:"tools,omitempty"`
-	Temperature float64         `json:"temperature"`
+	Temperature *float64        `json:"temperature,omitempty"`
 }
 
 type openAIStreamChunk struct {
@@ -1294,4 +1347,14 @@ func (f *Factory) Timeout(d time.Duration) *Factory {
 		Timeout: d,
 	}
 	return NewFactory(client)
+}
+func buildTokenizerChunker(limit int) (*tokenizer.Chunker, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	chunker, err := tokenizer.NewChunker(limit)
+	if err != nil {
+		return nil, fmt.Errorf("initialize tokenizer: %w", err)
+	}
+	return chunker, nil
 }

@@ -60,7 +60,7 @@ func (f *stubFactory) Register(modelName string, provider llm.ChatProvider) {
 	f.providers[modelName] = provider
 }
 
-func (f *stubFactory) Create(model config.Model) (llm.ChatProvider, error) {
+func (f *stubFactory) Create(model config.Model, chunkLimit int) (llm.ChatProvider, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p, ok := f.providers[model.Name]
@@ -1125,7 +1125,7 @@ func TestAppDefaultsOllamaNumCtxWhenZero(t *testing.T) {
 	}
 }
 
-func TestAppDoesNotChunkUserContextWhenLimitUnset(t *testing.T) {
+func TestAppDoesNotChunkUserContextWhenLimitDisabled(t *testing.T) {
 	t.Parallel()
 
 	const chunkLimit = 1500
@@ -1141,71 +1141,88 @@ func TestAppDoesNotChunkUserContextWhenLimitUnset(t *testing.T) {
 		t.Fatalf("test input does not exceed chunk limit, got %d tokens", tokenCount)
 	}
 
-	home := t.TempDir()
-	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
-	store := &stubStore{
-		cfg: config.Config{
-			Models: []config.Model{
-				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
-			},
-		},
-	}
-	provider := &recordingProvider{
-		chunks: []llm.StreamChunk{
-			{Type: llm.ChunkToken, Content: "Done"},
-		},
-	}
-	factory := newStubFactory()
-	factory.Register("chunk-model", provider)
-
-	input := strings.NewReader(longUserInput + "\n/exit\n")
-	var output bytes.Buffer
-
-	opts := app.Options{
-		Store:          store,
-		Factory:        factory,
-		Input:          input,
-		Output:         &output,
-		ErrorOutput:    &output,
-		HistoryRootDir: sessionDir,
-		HomeDir:        home,
-		Clock:          fixedClock(time.Now()),
+	testCases := []struct {
+		name           string
+		setChunkSize   bool
+		contextChunkSz int
+	}{
+		{name: "limitUnset"},
+		{name: "limitExplicitZero", setChunkSize: true, contextChunkSz: 0},
 	}
 
-	a, err := app.New(opts)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if err := a.Run(context.Background()); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
+			home := t.TempDir()
+			sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+			cfg := config.Config{
+				Models: []config.Model{
+					{Name: "chunk-model", Provider: "ollama", Active: true},
+				},
+			}
+			if tc.setChunkSize {
+				cfg.OllamaContextChunkSize = tc.contextChunkSz
+			}
+			store := &stubStore{cfg: cfg}
+			provider := &recordingProvider{
+				chunks: []llm.StreamChunk{
+					{Type: llm.ChunkToken, Content: "Done"},
+				},
+			}
+			factory := newStubFactory()
+			factory.Register("chunk-model", provider)
 
-	requests := provider.Requests()
-	if len(requests) != 1 {
-		t.Fatalf("expected a single request, got %d", len(requests))
-	}
+			input := strings.NewReader(longUserInput + "\n/exit\n")
+			var output bytes.Buffer
 
-	req := requests[0]
-	var userMessages []llm.Message
-	for _, msg := range req.Messages {
-		if msg.Role == "user" {
-			userMessages = append(userMessages, msg)
-		}
-	}
+			opts := app.Options{
+				Store:          store,
+				Factory:        factory,
+				Input:          input,
+				Output:         &output,
+				ErrorOutput:    &output,
+				HistoryRootDir: sessionDir,
+				HomeDir:        home,
+				Clock:          fixedClock(time.Now()),
+			}
 
-	if len(userMessages) != 1 {
-		t.Fatalf("expected a single user message when chunking is disabled, got %d", len(userMessages))
-	}
+			a, err := app.New(opts)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
 
-	userMsg := userMessages[0]
-	if tokens := len(encoder.Encode(userMsg.Content, nil, nil)); tokens <= chunkLimit {
-		t.Fatalf("test input should remain over the default limit, got %d tokens", tokens)
-	}
+			if err := a.Run(context.Background()); err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
 
-	if userMsg.Content != expectedUserInput {
-		idx := firstDifference(userMsg.Content, expectedUserInput)
-		t.Fatalf("user content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(userMsg.Content), len(expectedUserInput))
+			requests := provider.Requests()
+			if len(requests) != 1 {
+				t.Fatalf("expected a single request, got %d", len(requests))
+			}
+
+			var userMessages []llm.Message
+			for _, msg := range requests[0].Messages {
+				if msg.Role == "user" {
+					userMessages = append(userMessages, msg)
+				}
+			}
+
+			if len(userMessages) != 1 {
+				t.Fatalf("expected a single user message when chunking is disabled, got %d", len(userMessages))
+			}
+
+			userMsg := userMessages[0]
+			if tokens := len(encoder.Encode(userMsg.Content, nil, nil)); tokens <= chunkLimit {
+				t.Fatalf("test input should remain over the default limit, got %d tokens", tokens)
+			}
+
+			if userMsg.Content != expectedUserInput {
+				idx := firstDifference(userMsg.Content, expectedUserInput)
+				t.Fatalf("user content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(userMsg.Content), len(expectedUserInput))
+			}
+		})
 	}
 }
 
@@ -1229,9 +1246,9 @@ func TestAppChunksOverlongUserContextWithCustomLimit(t *testing.T) {
 	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
 	store := &stubStore{
 		cfg: config.Config{
-			ContextChunkSize: customLimit,
+			OllamaContextChunkSize: customLimit,
 			Models: []config.Model{
-				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+				{Name: "chunk-model", Provider: "ollama", Active: true},
 			},
 		},
 	}
@@ -1296,6 +1313,90 @@ func TestAppChunksOverlongUserContextWithCustomLimit(t *testing.T) {
 	if reconstructed.String() != expectedUserInput {
 		idx := firstDifference(reconstructed.String(), expectedUserInput)
 		t.Fatalf("reconstructed content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(reconstructed.String()), len(expectedUserInput))
+	}
+}
+
+func TestAppDoesNotChunkUserContextWithCustomLimitForOpenAI(t *testing.T) {
+	t.Parallel()
+
+	const customLimit = 512
+
+	encoder, err := tiktoken.GetEncoding("cl100k_base")
+	if err != nil {
+		t.Fatalf("failed to load tokenizer: %v", err)
+	}
+
+	longUserInput := strings.Repeat("Chunk context verification requires BPE based splitting. ", 2800)
+	expectedUserInput := strings.TrimSpace(longUserInput)
+	if tokenCount := len(encoder.Encode(expectedUserInput, nil, nil)); tokenCount <= customLimit {
+		t.Fatalf("test input does not exceed custom chunk limit, got %d tokens", tokenCount)
+	}
+
+	home := t.TempDir()
+	sessionDir := filepath.Join(home, ".humble-ai-cli", "sessions")
+	store := &stubStore{
+		cfg: config.Config{
+			OllamaContextChunkSize: customLimit,
+			Models: []config.Model{
+				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+			},
+		},
+	}
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Done"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("chunk-model", provider)
+
+	input := strings.NewReader(longUserInput + "\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: sessionDir,
+		HomeDir:        home,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	a, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := a.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected a single request, got %d", len(requests))
+	}
+
+	var userMessages []llm.Message
+	for _, msg := range requests[0].Messages {
+		if msg.Role == "user" {
+			userMessages = append(userMessages, msg)
+		}
+	}
+
+	if len(userMessages) != 1 {
+		t.Fatalf("expected openai user content to be unchunked, got %d messages", len(userMessages))
+	}
+
+	userMsg := userMessages[0]
+	if tokens := len(encoder.Encode(userMsg.Content, nil, nil)); tokens <= customLimit {
+		t.Fatalf("test input should remain above chunk limit, got %d tokens", tokens)
+	}
+
+	if userMsg.Content != expectedUserInput {
+		idx := firstDifference(userMsg.Content, expectedUserInput)
+		t.Fatalf("user content mismatch at %d (gotLen=%d wantLen=%d)", idx, len(userMsg.Content), len(expectedUserInput))
 	}
 }
 
@@ -1373,10 +1474,10 @@ func TestAppContextRetentionHandlesChunkedAssistantTurns(t *testing.T) {
 
 	store := &stubStore{
 		cfg: config.Config{
-			ContextChunkSize:      5,
-			ContextRetentionTurns: &retention,
+			OllamaContextChunkSize: 5,
+			ContextRetentionTurns:  &retention,
 			Models: []config.Model{
-				{Name: "chunk-model", Provider: "openai", APIKey: "sk-xxx", Active: true},
+				{Name: "chunk-model", Provider: "ollama", Active: true},
 			},
 		},
 	}

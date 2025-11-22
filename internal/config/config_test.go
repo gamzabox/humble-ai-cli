@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -19,11 +20,11 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	cfgPath := filepath.Join(configDir, "config.json")
 	retention := 4
 	input := config.Config{
-		LogLevel:              "debug",
-		ToolCallMode:          "auto",
-		ContextChunkSize:      2048,
-		ContextRetentionTurns: &retention,
-		OllamaNumCtx:          6144,
+		LogLevel:               "debug",
+		ToolCallMode:           "auto",
+		OllamaContextChunkSize: 2048,
+		ContextRetentionTurns:  &retention,
+		OllamaNumCtx:           6144,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx", Active: true},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434"},
@@ -46,8 +47,8 @@ func TestFileStoreLoadReadsConfigFromDefaultPath(t *testing.T) {
 	if got.LogLevel != input.LogLevel {
 		t.Fatalf("unexpected log level: %s", got.LogLevel)
 	}
-	if got.ContextChunkSize != input.ContextChunkSize {
-		t.Fatalf("unexpected contextChunkSize: %d", got.ContextChunkSize)
+	if got.OllamaContextChunkSize != input.OllamaContextChunkSize {
+		t.Fatalf("unexpected ollamaContextChunkSize: %d", got.OllamaContextChunkSize)
 	}
 	if got.ContextRetentionTurns == nil || *got.ContextRetentionTurns != retention {
 		t.Fatalf("unexpected contextRetentionTurns: %v", got.ContextRetentionTurns)
@@ -76,11 +77,11 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 
 	retention := 6
 	cfg := config.Config{
-		LogLevel:              "warn",
-		ToolCallMode:          "manual",
-		ContextChunkSize:      3072,
-		ContextRetentionTurns: &retention,
-		OllamaNumCtx:          8192,
+		LogLevel:               "warn",
+		ToolCallMode:           "manual",
+		OllamaContextChunkSize: 3072,
+		ContextRetentionTurns:  &retention,
+		OllamaNumCtx:           8192,
 		Models: []config.Model{
 			{Name: "gpt-4o", Provider: "openai", APIKey: "sk-xxx"},
 			{Name: "llama2", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
@@ -96,6 +97,12 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read persisted config: %v", err)
 	}
+	if !bytes.Contains(data, []byte(`"ollamaContextChunkSize"`)) {
+		t.Fatalf("expected persisted config to include ollamaContextChunkSize, got %s", data)
+	}
+	if bytes.Contains(data, []byte(`"contextChunkSize"`)) {
+		t.Fatalf("expected legacy contextChunkSize key to be removed, got %s", data)
+	}
 	var got config.Config
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("failed to unmarshal persisted config: %v", err)
@@ -109,8 +116,8 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	if got.ToolCallMode != cfg.ToolCallMode {
 		t.Fatalf("unexpected toolCallMode in persisted config: %s", got.ToolCallMode)
 	}
-	if got.ContextChunkSize != cfg.ContextChunkSize {
-		t.Fatalf("unexpected contextChunkSize in persisted config: %d", got.ContextChunkSize)
+	if got.OllamaContextChunkSize != cfg.OllamaContextChunkSize {
+		t.Fatalf("unexpected ollamaContextChunkSize in persisted config: %d", got.OllamaContextChunkSize)
 	}
 	if got.ContextRetentionTurns == nil || *got.ContextRetentionTurns != retention {
 		t.Fatalf("unexpected contextRetentionTurns in persisted config: %v", got.ContextRetentionTurns)
@@ -124,6 +131,34 @@ func TestFileStoreSavePersistsConfig(t *testing.T) {
 	}
 	if active.Name != "llama2" {
 		t.Fatalf("unexpected active model after save: %s", active.Name)
+	}
+}
+
+func TestFileStoreLoadUpgradesLegacyContextChunkSize(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to prepare config directory: %v", err)
+	}
+
+	legacyCfg := `{
+  "contextChunkSize": 1024,
+  "models": [
+    {"name": "llama2", "provider": "ollama", "active": true}
+  ]
+}`
+	cfgPath := filepath.Join(configDir, "config.json")
+	if err := os.WriteFile(cfgPath, []byte(legacyCfg), 0o644); err != nil {
+		t.Fatalf("failed to write legacy config: %v", err)
+	}
+
+	store := config.NewFileStore(home)
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.OllamaContextChunkSize != 1024 {
+		t.Fatalf("expected legacy chunk size to migrate to ollamaContextChunkSize, got %d", got.OllamaContextChunkSize)
 	}
 }
 
@@ -175,9 +210,9 @@ func TestConfigValidateRejectsMultipleActiveModels(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRejectsNonPositiveContextChunkSize(t *testing.T) {
+func TestConfigValidateRejectsNonPositiveOllamaContextChunkSize(t *testing.T) {
 	cfg := config.Config{
-		ContextChunkSize: -1,
+		OllamaContextChunkSize: -1,
 		Models: []config.Model{
 			{Name: "model", Provider: "openai", Active: true},
 		},
@@ -186,7 +221,7 @@ func TestConfigValidateRejectsNonPositiveContextChunkSize(t *testing.T) {
 		t.Fatalf("expected validation error for negative context chunk size")
 	}
 
-	cfg.ContextChunkSize = 0
+	cfg.OllamaContextChunkSize = 0
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected zero context chunk size to fall back to default, got error: %v", err)
 	}

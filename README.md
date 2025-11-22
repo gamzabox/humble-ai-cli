@@ -5,7 +5,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 ## Features
 - Interactive REPL with streaming responses and “Thinking…” indicators.
 - Remembers conversation context per session and persists transcripts to `~/.humble-ai-cli/sessions/`.
-- Optionally chunks context messages when `contextChunkSize` is set, splitting at the configured BPE token limit to avoid oversized prompts.
+- Optionally chunks context messages when `ollamaContextChunkSize` is set for Ollama models, splitting at the configured BPE token limit to avoid oversized prompts while keeping OpenAI runs unchunked.
 - Limits how many prior turns are sent back to the model via the `contextRetentionTurns` setting (defaults to the last 3 turns, supports disabling or sending the full history).
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
 - Ships with a built-in system prompt and appends optional user rules from `~/.humble-ai-cli/user-rules.md`.
@@ -47,7 +47,7 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
       "baseUrl": "http://localhost:11434"
     }
   ],
-  "contextChunkSize": 2000,
+  "ollamaContextChunkSize": 2000,
   "contextRetentionTurns": 5,
   "ollamaNumCtx": 6144,
   "logLevel": "debug",
@@ -55,7 +55,7 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 }
 ```
 
-`contextChunkSize` controls how many BPE tokens can be included in a single context message before it is split into multiple chunks. Omit the field or set it to 0 (the default) to keep chunking disabled, or provide a positive value to enable chunking at that token limit.
+`ollamaContextChunkSize` controls how many BPE tokens can be included in a single context message before it is split into multiple chunks when using Ollama. Omit the field or set it to 0 (the default) to keep chunking disabled; provide a positive value to enable chunking at that token limit. OpenAI models always send context as-is regardless of the value.
 
 `contextRetentionTurns` decides how many user-assistant turn pairs are sent alongside each new user prompt. Omit the field to keep the default of the last 3 turns, set it to 0 to send only the latest user prompt without prior context, or use a negative value to always send the full history (no trimming). When a dangling user-only entry exists in history it is treated as a full turn for retention purposes.
 

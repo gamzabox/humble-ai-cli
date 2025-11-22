@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gamzabox/humble-ai-cli/internal/config"
-	"github.com/gamzabox/humble-ai-cli/internal/tokenizer"
 )
 
 func testChooseFunctionDefinition() ToolDefinition {
@@ -333,7 +332,7 @@ func TestOllamaProviderStreamWithToolCalls(t *testing.T) {
 		Provider: "ollama",
 		BaseURL:  server.URL,
 	}
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -573,7 +572,7 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 		Provider: "ollama",
 		BaseURL:  server.URL,
 	}
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -741,7 +740,7 @@ func TestOllamaProviderPreservesManualFunctionCallJSON(t *testing.T) {
 		Provider: "ollama",
 		BaseURL:  server.URL,
 	}
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -854,7 +853,7 @@ func TestOllamaProviderStreamsThinkingFields(t *testing.T) {
 		BaseURL:  server.URL,
 	}
 
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -954,7 +953,7 @@ func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 		BaseURL:  server.URL,
 	}
 
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -998,6 +997,108 @@ func TestOpenAIProviderStreamsThinkingTokens(t *testing.T) {
 	}
 	if chunk := expectChunk(); chunk.Type != ChunkDone {
 		t.Fatalf("expected done chunk, got %#v", chunk)
+	}
+}
+
+func TestOpenAIProviderRetriesWithoutTemperatureWhenUnsupported(t *testing.T) {
+	t.Parallel()
+
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		requestCount++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		r.Body.Close()
+
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal request: %v", err)
+		}
+
+		if requestCount == 1 {
+			if payload["temperature"] != 0.1 {
+				t.Fatalf("expected first request temperature 0.1, got %v", payload["temperature"])
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"message":"Unsupported value: 'temperature' does not support 0.1 with this model. Only the default (1) value is supported."}}`)
+			return
+		}
+
+		if _, ok := payload["temperature"]; ok {
+			t.Fatalf("expected second request to omit temperature, got %v", payload["temperature"])
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		io.WriteString(w, `data: {"choices":[{"delta":{"content":"Hi"}}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, `data: {"choices":[{"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	factory := NewFactory(server.Client())
+	model := config.Model{
+		Name:     "o4-mini",
+		Provider: "openai",
+		APIKey:   "sk-test",
+		BaseURL:  server.URL,
+	}
+
+	provider, err := factory.Create(model, 0)
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	stream, err := provider.Stream(ctx, ChatRequest{
+		Model:  model.Name,
+		Stream: true,
+	})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	expectChunk := func() StreamChunk {
+		t.Helper()
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context done: %v", ctx.Err())
+		case chunk, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed unexpectedly")
+			}
+			return chunk
+		}
+		return StreamChunk{}
+	}
+
+	if chunk := expectChunk(); chunk.Type != ChunkThinking || chunk.Content != "" {
+		t.Fatalf("expected initial thinking chunk, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkToken || chunk.Content != "Hi" {
+		t.Fatalf("expected final token chunk, got %#v", chunk)
+	}
+	if chunk := expectChunk(); chunk.Type != ChunkDone {
+		t.Fatalf("expected done chunk, got %#v", chunk)
+	}
+
+	if requestCount != 2 {
+		t.Fatalf("expected 2 requests, got %d", requestCount)
 	}
 }
 
@@ -1045,7 +1146,7 @@ func TestOpenAIProviderHandlesChooseFunctionJSON(t *testing.T) {
 		BaseURL:  server.URL,
 	}
 
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -1157,7 +1258,7 @@ func TestOpenAIProviderStreamsReasoningContentVariants(t *testing.T) {
 		BaseURL:  server.URL,
 	}
 
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -1248,7 +1349,7 @@ func TestOpenAIProviderLogsFollowupRequestsForToolCalls(t *testing.T) {
 		BaseURL:  server.URL,
 	}
 
-	provider, err := factory.Create(model)
+	provider, err := factory.Create(model, 0)
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
@@ -1339,16 +1440,26 @@ finished:
 	}
 }
 
-func TestOpenAIProviderChunksToolResults(t *testing.T) {
+func TestOpenAIProviderDoesNotChunkToolResults(t *testing.T) {
 	t.Parallel()
 
-	chunker, err := tokenizer.NewChunker(32)
+	factory := NewFactory(nil)
+	model := config.Model{
+		Name:     "chunk-model",
+		Provider: "openai",
+		APIKey:   "sk-xxx",
+	}
+	created, err := factory.Create(model, 4096)
 	if err != nil {
-		t.Fatalf("NewChunker() error = %v", err)
+		t.Fatalf("Create() error = %v", err)
 	}
 
-	provider := &openAIProvider{
-		chunker: chunker,
+	provider, ok := created.(*openAIProvider)
+	if !ok {
+		t.Fatalf("expected openAIProvider, got %T", created)
+	}
+	if provider.chunker != nil {
+		t.Fatalf("expected openAI chunker to be disabled, got %#v", provider.chunker)
 	}
 
 	definitions := map[string]ToolDefinition{
@@ -1392,42 +1503,40 @@ func TestOpenAIProviderChunksToolResults(t *testing.T) {
 	}
 
 	longContent := strings.Repeat("chunked tool context requires splitting. ", 200)
+	want := strings.TrimSpace(longContent)
 	if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: longContent}); err != nil {
 		t.Fatalf("Respond() error = %v", err)
 	}
 
 	msgs := <-done
-	if len(msgs) < 2 {
-		t.Fatalf("expected chunked tool messages, got %d", len(msgs))
+	if len(msgs) != 1 {
+		t.Fatalf("expected unchunked tool message, got %d", len(msgs))
 	}
-
-	var combined strings.Builder
-	for _, msg := range msgs {
-		if msg.Role != "tool" {
-			t.Fatalf("unexpected role %q", msg.Role)
-		}
-		if msg.ToolCallID != call.Call.ID {
-			t.Fatalf("unexpected tool call id %q", msg.ToolCallID)
-		}
-		combined.WriteString(msg.Content)
-	}
-
-	want := strings.TrimSpace(longContent)
-	if combined.String() != want {
-		t.Fatalf("combined content mismatch")
+	if msg := msgs[0]; msg.Role != "tool" || msg.Content != want {
+		t.Fatalf("unexpected tool message %#v", msg)
 	}
 }
 
 func TestOllamaProviderChunksToolResults(t *testing.T) {
 	t.Parallel()
 
-	chunker, err := tokenizer.NewChunker(32)
+	factory := NewFactory(nil)
+	model := config.Model{
+		Name:     "chunk-model",
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434",
+	}
+	created, err := factory.Create(model, 64)
 	if err != nil {
-		t.Fatalf("NewChunker() error = %v", err)
+		t.Fatalf("Create() error = %v", err)
 	}
 
-	provider := &ollamaProvider{
-		chunker: chunker,
+	provider, ok := created.(*ollamaProvider)
+	if !ok {
+		t.Fatalf("expected ollamaProvider, got %T", created)
+	}
+	if provider.chunker == nil {
+		t.Fatalf("expected ollama chunker to be configured when limit > 0")
 	}
 
 	definitions := map[string]ToolDefinition{
@@ -1471,6 +1580,7 @@ func TestOllamaProviderChunksToolResults(t *testing.T) {
 	}
 
 	longContent := strings.Repeat("chunked ollama tool content requires splitting. ", 200)
+	want := strings.TrimSpace(longContent)
 	if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: longContent}); err != nil {
 		t.Fatalf("Respond() error = %v", err)
 	}
@@ -1491,9 +1601,85 @@ func TestOllamaProviderChunksToolResults(t *testing.T) {
 		combined.WriteString(msg.Content)
 	}
 
-	want := strings.TrimSpace(longContent)
 	if combined.String() != want {
 		t.Fatalf("combined content mismatch")
+	}
+}
+
+func TestOllamaProviderDoesNotChunkToolResultsWhenLimitDisabled(t *testing.T) {
+	t.Parallel()
+
+	factory := NewFactory(nil)
+	model := config.Model{
+		Name:     "chunk-model",
+		Provider: "ollama",
+		BaseURL:  "http://localhost:11434",
+	}
+	created, err := factory.Create(model, 0)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	provider, ok := created.(*ollamaProvider)
+	if !ok {
+		t.Fatalf("expected ollamaProvider, got %T", created)
+	}
+	if provider.chunker != nil {
+		t.Fatalf("expected ollama chunker to be disabled when limit is zero")
+	}
+
+	definitions := map[string]ToolDefinition{
+		"context7__get": {
+			Server:      "context7",
+			Method:      "get",
+			Description: "Get docs",
+			Name:        "context7__get",
+		},
+	}
+
+	call := toolCallRequest{
+		Call: openAIToolCall{
+			ID: "call_C",
+			Function: openAIToolFunction{
+				Name:      "context7__get",
+				Arguments: `{"query":"chunk"}`,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream := make(chan StreamChunk, 1)
+	done := make(chan []ollamaMessage, 1)
+
+	go func() {
+		msgs, err := provider.awaitToolResult(ctx, stream, definitions, call)
+		if err != nil {
+			t.Errorf("awaitToolResult() error = %v", err)
+			close(done)
+			return
+		}
+		done <- msgs
+	}()
+
+	chunk := <-stream
+	if chunk.ToolCall == nil {
+		t.Fatalf("expected tool call chunk")
+	}
+
+	longContent := strings.Repeat("chunked ollama tool content requires splitting. ", 200)
+	want := strings.TrimSpace(longContent)
+	if err := chunk.ToolCall.Respond(ctx, ToolResult{Content: longContent}); err != nil {
+		t.Fatalf("Respond() error = %v", err)
+	}
+
+	msgs := <-done
+	if len(msgs) != 1 {
+		t.Fatalf("expected unchunked tool message, got %d", len(msgs))
+	}
+	if msg := msgs[0]; msg.Role != "tool" || msg.Content != want {
+		t.Fatalf("unexpected tool message %#v", msg)
 	}
 }
 

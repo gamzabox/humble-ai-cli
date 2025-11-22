@@ -250,6 +250,18 @@
 - [x] README.md 에 새로운 동작 방식을 문서화한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
 
+# OpenAI Context Chunking 비활성화
+- [x] REQUIREMENTS.md/README.md 에 OpenAI 모델 chunking 비활성화 및 0/미설정 비활성화 요구사항을 반영한다.
+- [x] OpenAI 모델에서 context chunking 이 비활성화되고, 0/미설정 시 chunking 이 꺼지는 테스트를 먼저 추가/수정한다.
+- [x] OpenAI 모델 및 0/미설정 조건에서 chunking 이 비활성화되도록 구현을 수정한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Ollama Context Chunk Size 설정명 변경
+- [x] REQUIREMENTS.md/README.md 에 `ollamaContextChunkSize` 설정명 변경 및 Ollama 전용 동작을 반영한다.
+- [x] 구성/호환성 테스트를 업데이트해 신규 필드와 legacy `contextChunkSize` 업그레이드를 검증한다.
+- [x] Config/App 로직을 수정해 Ollama 전용 chunking 과 legacy 필드 마이그레이션을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
 # System Prompt 내장 및 User Rules
 - [x] REQUIREMENTS.md/README.md 에 system prompt 내장 및 user-rules 동작 요구사항을 반영한다.
 - [x] App system prompt 동작을 검증하는 테스트를 먼저 작성/수정한다.
@@ -266,4 +278,10 @@
 - [x] REQUIREMENTS.md/README.md 에 contextRetentionTurns 요구사항을 반영한다.
 - [x] contextRetentionTurns 동작을 검증하는 테스트를 작성한다.
 - [x] contextRetentionTurns 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# OpenAI Temperature 호환성
+- [x] REQUIREMENTS.md 에 temperature 예외 요구사항을 반영한다.
+- [x] OpenAI temperature fallback 동작을 검증하는 테스트를 작성한다.
+- [x] OpenAI provider 가 temperature 미지원 모델에서 기본값으로 재시도하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
