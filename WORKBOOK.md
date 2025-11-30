@@ -641,3 +641,19 @@ Humble AI CLI version 1.0.0
 - Datetime: <ISO format datetime of now>
 ```
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# Workflow 기능 추가
+- humble-ai-cli 실행 시 exec a-workflow-file.md 파라메터 전달 시 a-workflow-file.md 에 기술된 프롬프트를 수행하고 프로그램 종료(e.g. humble-ai-cli exec summarize-youtube-videos.md)
+- 화면 출력은 각 사용자 프롬프트별 최종 답변만 출력하고, 사용자 가이드나 call function 메시지등은 출력하지 않는다. 단 toolCallMode 설정이 manual 일 경우에는 call function 및 YN 질의 메시지를 출력하고 사용자 의사를 확인 한다.
+- workflow 파일이 존재하지 않거나 필수 정보가 누락거나 잘못 작성 되었을 경우 이에 대한 에러 메시지를 출력하고 종료 할것
+- workflow 파일 포맷은 샘플파일 WORKFLOW.test.md 참고할것
+## configs
+- Basic Config 는 config.json 파일을 대체하고 MCP Servers 는 mcp-servers.json 파일을 대체 함
+- Workflow 파일에 Basic Config 나 MCP Servers 설정이 존재하지 않으면 각각 .humble-ai-cli/config.json 과 .humble-ai-cli/mcp-servers.json 의 설정을 사용함. 
+- 각 설정 항목별 미 존재시 설정 파일을 참고 하는 것이 아니라 workflow 파일의 설정에 미 설정 항목은 프로그램의 기본 설정을 따르게 되고, 필수 설정 값이 없으면 에러 메시지를 출력 하고 프로그램을 종료 해야 함
+## Workflows
+- Workflows 하위의 항목들이 각각 사용자 프롬프트로 실행 되어야 함 
+- 항목의 heading 은 사용자 프롬프트로 사용되지 않고 본문만 사용 됨
+- 사용자 프롬프트들이 하나의 세션으로 컨텍스트를 유지 하면서 순서대로 실행 되어야 함
+
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**

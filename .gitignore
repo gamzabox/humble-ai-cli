@@ -30,7 +30,7 @@ myapp.exe
 # 테스트 파일 및 캐시 (Test Files and Cache)
 # go test -c로 생성되는 테스트 실행 파일
 *test.exe
-*test.
+*.test.*
 # 테스트 및 빌드 캐시
 /pkg/mod/cache/ 
 .test
@@ -57,4 +57,5 @@ myapp.exe
 .DS_Store # macOS
 Thumbs.db # Windows
 
-humble-ai-cli*
+# Test 파일
+

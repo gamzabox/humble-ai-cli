@@ -176,6 +176,11 @@ Ask minimal questions required to make the next legitimate function call.
 - 프롬프트 입력 시 좌우 방향키, Home, End 키로 커서를 이동할 수 있어야 하며, 한국어/중국어/일본어 등 다국어 입력에서도 정상 동작해야 한다.
 - Windows 의 기본 cmd.exe 및 PowerShell 콘솔에서도 동일한 커서 이동과 히스토리 탐색 동작이 가능하도록 ANSI 제어 시퀀스를 처리할 수 있는 출력 모드를 자동으로 활성화한다.
 - 입력 중 상/하 방향키로 동일 세션의 이전 입력을 탐색할 수 있어야 하며, 상 방향키는 더 과거의 입력을 순차적으로 불러오고 하 방향키는 다시 최신 입력으로 이동한다. 히스토리를 탐색하다가 하 방향키로 최신 위치로 돌아오면 탐색 시작 직전까지 작성 중이던 내용이 그대로 복원되어야 한다.
+- `humble-ai-cli exec <workflow-file.md>` 명령으로 워크플로우 파일을 실행할 수 있어야 하며, 파일에 정의된 사용자 프롬프트들을 단일 세션으로 순차 실행한 뒤 종료한다. 워크플로우 파일이 없거나 필수 정보가 누락/잘못된 경우 에러 메시지를 출력하고 바로 종료한다.
+- 워크플로우 파일 포맷은 `WORKFLOW.test.md` 를 따른다. `# CONFIGS` 섹션의 `## Basic Config` JSON 은 `config.json` 을 대체하고, `## MCP Servers` JSON 은 `mcp-servers.json` 을 대체한다. 둘 중 하나가 누락되면 각각 `$HOME/.humble-ai-cli/config.json` 과 `$HOME/.humble-ai-cli/mcp-servers.json` 을 그대로 사용한다.
+- 워크플로우 파일에 Basic Config 가 존재할 때는 해당 JSON 필드만 사용하며 누락된 항목은 프로그램 기본값을 적용한다. 최소 한 개의 활성 모델이 존재해야 하며, OpenAI 모델은 `apiKey` 가, Ollama 모델은 `baseUrl` 이 반드시 있어야 한다. 필수 값이 없으면 에러를 출력하고 종료한다(기존 config 파일로 보완하지 않는다).
+- 워크플로우 실행 시 `WORKFLOWS` 하위 항목의 본문이 사용자 프롬프트로 사용되며 헤딩 텍스트는 포함하지 않는다. 각 프롬프트는 동일 세션 컨텍스트를 유지한 채 순서대로 실행된다.
+- 워크플로우 모드에서는 각 프롬프트별 최종 답변만 출력하고 시작 안내, 대기 메시지, MCP 호출 요약 등 중간 가이드는 출력하지 않는다. 단, `toolCallMode` 가 `manual` 인 경우 MCP 호출 요약과 Y/N 질의로 사용자 의사를 확인한 뒤 진행한다.
 
 ## Config
 - API 연계 정보등의 설정은 $HOME/.humble-ai-cli/config.json 파일을 사용 함

@@ -72,6 +72,7 @@ type Options struct {
 	MCP            MCPExecutor
 	Version        string
 	BuildDate      string
+	UserRules      *string
 }
 
 // App coordinates CLI behaviour.
@@ -113,6 +114,8 @@ type App struct {
 
 	signalCh   chan os.Signal
 	stopSignal func()
+
+	userRulesOverride *string
 }
 
 type appMode int
@@ -134,6 +137,20 @@ const (
 	routeIntentToolName   = "chooseFunction"
 	ctrlDExitGuide        = "Press CTRL+D to exit the program."
 )
+
+type responseDisplay struct {
+	showWaiting      bool
+	showThinking     bool
+	showToolMessages bool
+}
+
+func defaultResponseDisplay() responseDisplay {
+	return responseDisplay{
+		showWaiting:      true,
+		showThinking:     true,
+		showToolMessages: true,
+	}
+}
 
 // New constructs an App from options.
 func New(opts Options) (*App, error) {
@@ -243,6 +260,7 @@ func New(opts Options) (*App, error) {
 		mcpFunctions:      make(map[string][]MCPFunction),
 		cfg:               cfg,
 		mode:              modeInput,
+		userRulesOverride: opts.UserRules,
 	}
 
 	app.lineReader = createLineReader(opts.Input, app.output, func() {
@@ -297,16 +315,23 @@ func ensureUserRules(home string) (string, error) {
 func (a *App) initializeSystemPrompt() error {
 	prompt := buildDefaultSystemPrompt()
 
-	rules, err := ensureUserRules(a.homeDir)
-	if err != nil {
-		return err
+	var rules string
+	if a.userRulesOverride != nil {
+		rules = strings.TrimSpace(*a.userRulesOverride)
+	} else {
+		var err error
+		rules, err = ensureUserRules(a.homeDir)
+		if err != nil {
+			return err
+		}
+		rules = strings.TrimSpace(rules)
 	}
 
-	if trimmedRules := strings.TrimSpace(rules); trimmedRules != "" {
+	if rules != "" {
 		if strings.TrimSpace(prompt) != "" {
-			prompt = strings.TrimRight(prompt, "\n") + "\n\n" + trimmedRules
+			prompt = strings.TrimRight(prompt, "\n") + "\n\n" + rules
 		} else {
-			prompt = trimmedRules
+			prompt = rules
 		}
 	}
 
@@ -663,6 +688,11 @@ func (a *App) startNewSession() {
 }
 
 func (a *App) handleUserMessage(ctx context.Context, content string) error {
+	_, err := a.handleUserMessageWithDisplay(ctx, content, defaultResponseDisplay())
+	return err
+}
+
+func (a *App) handleUserMessageWithDisplay(ctx context.Context, content string, display responseDisplay) (string, error) {
 	a.cfgMu.RLock()
 	cfg := a.cfg
 	a.cfgMu.RUnlock()
@@ -673,14 +703,16 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		if len(cfg.Models) == 0 {
 			fmt.Fprintf(a.output, "> Add model configuration to %s and try again.\n", a.configFilePath())
 		}
-		return nil
+		return "", nil
 	}
 
 	if a.firstUserInput == "" {
 		a.firstUserInput = content
 	}
 
-	fmt.Fprintln(a.output, "> Waiting for response...")
+	if display.showWaiting {
+		fmt.Fprintln(a.output, "> Waiting for response...")
+	}
 
 	chunkLimit := 0
 	if strings.EqualFold(activeModel.Provider, "ollama") {
@@ -689,7 +721,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	provider, err := a.factory.Create(activeModel, chunkLimit)
 	if err != nil {
-		return fmt.Errorf("create provider: %w", err)
+		return "", fmt.Errorf("create provider: %w", err)
 	}
 
 	retention := defaultContextRetentionTurns
@@ -761,7 +793,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 
 	stream, err := provider.Stream(reqCtx, req)
 	if err != nil {
-		return fmt.Errorf("stream: %w", err)
+		return "", fmt.Errorf("stream: %w", err)
 	}
 
 	var assistant strings.Builder
@@ -773,7 +805,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		needsLineBreak: false,
 	}
 	openThinking := func() {
-		if thinking.active {
+		if !display.showThinking || thinking.active {
 			return
 		}
 		fmt.Fprintln(a.output, "<<< Thinking >>>")
@@ -781,7 +813,7 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		thinking.needsLineBreak = false
 	}
 	closeThinking := func() {
-		if !thinking.active {
+		if !display.showThinking || !thinking.active {
 			return
 		}
 		if thinking.needsLineBreak {
@@ -827,7 +859,7 @@ loop:
 			}
 			assistant.Reset()
 			a.logDebug("LLM requested MCP tool: server=%s method=%s", chunk.ToolCall.Server, chunk.ToolCall.Method)
-			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall); err != nil {
+			if err := a.processToolCall(reqCtx, cancel, chunk.ToolCall, display); err != nil {
 				if errors.Is(err, errToolDeclined) {
 					cancelledByUser = true
 				} else {
@@ -852,13 +884,15 @@ loop:
 
 	if cancelledByUser {
 		a.logDebug("LLM response cancelled by user")
-		return nil
+		return "", nil
 	}
 
 	if reqCtx.Err() != nil {
-		fmt.Fprintln(a.output, "\n> Response cancelled.")
+		if display.showWaiting {
+			fmt.Fprintln(a.output, "\n> Response cancelled.")
+		}
 		a.logDebug("LLM response context cancelled: %v", reqCtx.Err())
-		return nil
+		return "", nil
 	}
 
 	if assistant.Len() > 0 {
@@ -867,7 +901,7 @@ loop:
 
 	if errored {
 		a.logDebug("LLM response aborted due to stream error")
-		return nil
+		return "", nil
 	}
 	a.logDebug("LLM response: %s", assistant.String())
 
@@ -882,7 +916,7 @@ loop:
 		fmt.Fprintf(a.errOutput, "> Failed to persist history: %v\n", err)
 	}
 
-	return nil
+	return assistant.String(), nil
 }
 
 func (a *App) persistHistory(model string, when time.Time) error {
@@ -1270,37 +1304,40 @@ func (a *App) logError(format string, args ...any) {
 	}
 }
 
-func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
+func (a *App) processToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall, display responseDisplay) error {
 	if call == nil {
 		return nil
 	}
 	if call.Server == routeIntentServerName && call.Method == routeIntentToolName {
-		return a.handleChooseFunctionCall(ctx, call)
+		return a.handleChooseFunctionCall(ctx, call, display)
 	}
 	a.logDebug("MCP call request received: server=%s method=%s args=%v", call.Server, call.Method, call.Arguments)
 
-	fmt.Fprintln(a.output, "\n> MCP tool call")
-	fmt.Fprintf(a.output, "- Server: %s\n", call.Server)
-	fmt.Fprintf(a.output, "- Tool: %s\n", call.Method)
-	fmt.Fprintln(a.output, "- Arguments:")
+	showToolMessages := display.showToolMessages || a.toolCallMode() == config.ToolCallModeManual
+	if showToolMessages {
+		fmt.Fprintln(a.output, "\n> MCP tool call")
+		fmt.Fprintf(a.output, "- Server: %s\n", call.Server)
+		fmt.Fprintf(a.output, "- Tool: %s\n", call.Method)
+		fmt.Fprintln(a.output, "- Arguments:")
 
-	keys := make([]string, 0, len(call.Arguments))
-	for key := range call.Arguments {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	if len(keys) == 0 {
-		fmt.Fprintln(a.output, "  (none)")
-	} else {
-		for _, key := range keys {
-			fmt.Fprintf(a.output, "  - %s: %s\n", key, formatToolArgument(call.Arguments[key]))
+		keys := make([]string, 0, len(call.Arguments))
+		for key := range call.Arguments {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		if len(keys) == 0 {
+			fmt.Fprintln(a.output, "  (none)")
+		} else {
+			for _, key := range keys {
+				fmt.Fprintf(a.output, "  - %s: %s\n", key, formatToolArgument(call.Arguments[key]))
+			}
 		}
 	}
 
 	if a.toolCallMode() == config.ToolCallModeAuto {
-		return a.executeToolCall(ctx, call)
+		return a.executeToolCall(ctx, call, display)
 	}
-	return a.confirmToolCall(ctx, cancel, call)
+	return a.confirmToolCall(ctx, cancel, call, display)
 }
 
 func (a *App) toolCallMode() config.ToolCallMode {
@@ -1309,7 +1346,7 @@ func (a *App) toolCallMode() config.ToolCallMode {
 	return a.cfg.EffectiveToolCallMode()
 }
 
-func (a *App) executeToolCall(ctx context.Context, call *llm.ToolCall) error {
+func (a *App) executeToolCall(ctx context.Context, call *llm.ToolCall, display responseDisplay) error {
 	if a.mcp == nil {
 		return errors.New("mcp executor not configured")
 	}
@@ -1331,11 +1368,13 @@ func (a *App) executeToolCall(ctx context.Context, call *llm.ToolCall) error {
 	}
 
 	a.logDebug("MCP call success: server=%s method=%s result=%s", call.Server, call.Method, strings.TrimSpace(result.Content))
-	fmt.Fprintln(a.output, "> MCP call completed.")
+	if display.showToolMessages {
+		fmt.Fprintln(a.output, "> MCP call completed.")
+	}
 	return nil
 }
 
-func (a *App) confirmToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall) error {
+func (a *App) confirmToolCall(ctx context.Context, cancel context.CancelFunc, call *llm.ToolCall, display responseDisplay) error {
 	for {
 		answer, err := a.readLine("Call now? (Y/N): ")
 		if err != nil {
@@ -1344,7 +1383,7 @@ func (a *App) confirmToolCall(ctx context.Context, cancel context.CancelFunc, ca
 
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "y", "yes":
-			return a.executeToolCall(ctx, call)
+			return a.executeToolCall(ctx, call, display)
 		case "n", "no":
 			if call.Respond != nil {
 				_ = call.Respond(ctx, llm.ToolResult{Content: "user cancelled MCP call", IsError: true})
@@ -1379,7 +1418,7 @@ func formatToolArgument(value any) string {
 	}
 }
 
-func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) error {
+func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall, display responseDisplay) error {
 	functionName := extractChooseFunctionName(call.Arguments)
 	if functionName == "" {
 		return a.respondChooseFunctionError(ctx, call, "functionName argument is required")
@@ -1412,7 +1451,9 @@ func (a *App) handleChooseFunctionCall(ctx context.Context, call *llm.ToolCall) 
 	}
 
 	a.logDebug("chooseFunction schema provided for %s", functionName)
-	fmt.Fprintf(a.output, "> Provided schema for function %q.\n", functionName)
+	if display.showToolMessages {
+		fmt.Fprintf(a.output, "> Provided schema for function %q.\n", functionName)
+	}
 	return nil
 }
 
