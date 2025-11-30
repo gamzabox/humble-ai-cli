@@ -9,6 +9,7 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
 - Limits how many prior turns are sent back to the model via the `contextRetentionTurns` setting (defaults to the last 3 turns, supports disabling or sending the full history).
 - Works with either OpenAI or Ollama providers as defined in `~/.humble-ai-cli/config.json`.
 - Ships with a built-in system prompt and appends optional user rules from `~/.humble-ai-cli/user-rules.md`.
+- Runs scripted conversations via `humble-ai-cli exec <workflow.md>`, executing multiple prompts from a workflow file in a single session.
 - Built-in slash commands:
   - `/help` – show available commands.
   - `/new` – start a fresh session (clears in-memory history).
@@ -64,6 +65,13 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 Optional: add additional guardrails in `~/.humble-ai-cli/user-rules.md`. The CLI creates the file if missing and appends its contents to the built-in system prompt for every request.
 Set `active` to `true` for the model you want the CLI to use by default. Only one model should be active at a time.
 Set `toolCallMode` to `auto` to automatically run approved MCP tool calls without the confirmation prompt (the default `manual` mode keeps the confirmation step). You can also adjust this within the CLI via `/set-tool-mode auto` or `/set-tool-mode manual`.
+
+## Workflow Execution
+- Run `humble-ai-cli exec path/to/workflow.md` to execute a predefined conversation and exit after completion.
+- Format (see `WORKFLOW.test.md`): the `# CONFIGS` section may include `## Basic Config` (JSON matching `config.json`) and `## MCP Servers` (JSON with the `mcpServers` object from `mcp-servers.json`). If either subsection is missing, the CLI falls back to `$HOME/.humble-ai-cli/config.json` or `$HOME/.humble-ai-cli/mcp-servers.json` respectively.
+- When a Basic Config block is present, only that JSON is used—missing fields take program defaults rather than values from local config files. It must declare an active model; OpenAI entries require `apiKey` and Ollama entries require `baseUrl`. Missing required fields or malformed workflow files produce an error and abort execution.
+- Under `# WORKFLOWS`, each `##` heading marks a step; only the body text becomes the user prompt. Steps run in order within a single session so later prompts reuse earlier context.
+- Workflow output shows only the final answer for each prompt. Startup guides, waiting messages, and MCP call summaries are suppressed unless `toolCallMode` is `manual`, in which case MCP call details and the Y/N confirmation prompt still appear before execution.
 
 ### Logging
 - Logs are written to `~/.humble-ai-cli/logs/application-hac-YYYY-MM-DD.log`.

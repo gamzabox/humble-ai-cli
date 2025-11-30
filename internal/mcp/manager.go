@@ -109,6 +109,7 @@ type DebugLogger interface {
 }
 
 type sessionDialer func(context.Context, serverConfig, DebugLogger) (*sessionHolder, error)
+type serverLoader func() (map[string]serverConfig, error)
 
 // Manager loads server configurations and executes MCP tool calls.
 type Manager struct {
@@ -118,11 +119,15 @@ type Manager struct {
 	sessions map[string]*sessionHolder
 	connect  sessionDialer
 	logger   DebugLogger
+	loader   serverLoader
 }
 
 // NewManager creates a Manager rooted at the provided home directory.
 func NewManager(home string) (*Manager, error) {
-	servers, err := loadServerConfigs(home)
+	loader := func() (map[string]serverConfig, error) {
+		return loadServerConfigs(home)
+	}
+	servers, err := loader()
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +136,25 @@ func NewManager(home string) (*Manager, error) {
 		servers:  servers,
 		sessions: make(map[string]*sessionHolder),
 		connect:  defaultSessionDialer,
+		loader:   loader,
+	}, nil
+}
+
+// NewManagerWithServers creates a Manager using the provided MCP server map instead of reading from disk.
+func NewManagerWithServers(home string, servers map[string]map[string]any) (*Manager, error) {
+	loader := func() (map[string]serverConfig, error) {
+		return buildServersFromMap(servers)
+	}
+	parsed, err := loader()
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{
+		home:     home,
+		servers:  parsed,
+		sessions: make(map[string]*sessionHolder),
+		connect:  defaultSessionDialer,
+		loader:   loader,
 	}, nil
 }
 
@@ -243,7 +267,14 @@ func (m *Manager) Close() error {
 
 // Reload refreshes server configurations from disk.
 func (m *Manager) Reload() error {
-	servers, err := loadServerConfigs(m.home)
+	loader := m.loader
+	if loader == nil {
+		loader = func() (map[string]serverConfig, error) {
+			return loadServerConfigs(m.home)
+		}
+	}
+
+	servers, err := loader()
 	if err != nil {
 		return err
 	}
@@ -638,22 +669,7 @@ func loadServerConfigs(home string) (map[string]serverConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(file.Servers) == 0 {
-		return map[string]serverConfig{}, nil
-	}
-
-	servers := make(map[string]serverConfig, len(file.Servers))
-	for key, raw := range file.Servers {
-		cfg, err := buildServerConfig(key, raw)
-		if err != nil {
-			return nil, err
-		}
-		if _, exists := servers[cfg.Name]; exists {
-			return nil, fmt.Errorf("duplicate MCP server name %q", cfg.Name)
-		}
-		servers[cfg.Name] = cfg
-	}
-	return servers, nil
+	return buildServersFromFile(file)
 }
 
 // ListConfiguredServers returns all configured servers with their enabled state.
@@ -823,6 +839,47 @@ func buildServerConfig(key string, raw rawServerConfig) (serverConfig, error) {
 	default:
 		return serverConfig{}, fmt.Errorf("server %q has unsupported type %q", name, cfg.Type)
 	}
+}
+
+func buildServersFromFile(file mcpConfigFile) (map[string]serverConfig, error) {
+	if len(file.Servers) == 0 {
+		return map[string]serverConfig{}, nil
+	}
+
+	servers := make(map[string]serverConfig, len(file.Servers))
+	for key, raw := range file.Servers {
+		cfg, err := buildServerConfig(key, raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := servers[cfg.Name]; exists {
+			return nil, fmt.Errorf("duplicate MCP server name %q", cfg.Name)
+		}
+		servers[cfg.Name] = cfg
+	}
+	return servers, nil
+}
+
+func buildServersFromMap(raw map[string]map[string]any) (map[string]serverConfig, error) {
+	if len(raw) == 0 {
+		return map[string]serverConfig{}, nil
+	}
+
+	file := mcpConfigFile{
+		Servers: make(map[string]rawServerConfig, len(raw)),
+	}
+	for key, value := range raw {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("marshal MCP server %q: %w", key, err)
+		}
+		var cfg rawServerConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parse MCP server %q: %w", key, err)
+		}
+		file.Servers[key] = cfg
+	}
+	return buildServersFromFile(file)
 }
 
 func equivalentServerConfig(a, b serverConfig) bool {
