@@ -354,3 +354,8 @@
 - [x] system prompt에 System Information 블록이 포함되는지 검증하는 테스트를 추가하거나 수정한다.
 - [x] System Information 블록 생성 및 병합 로직을 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# README Quick Start 추가
+- [x] README.md 에 Quick Start 보강 필요성을 확인한다.
+- [x] Quick Start 섹션을 작성해 모델 구성, MCP 설정, 실행 및 워크플로우 사용 흐름을 안내한다.
+- [x] 문서 업데이트를 검토하고 추가 요구사항을 반영한다.

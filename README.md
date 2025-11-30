@@ -19,6 +19,12 @@ Lightweight terminal client for conversational LLM sessions with OpenAI or Ollam
   - `/toggle-mcp` – enable or disable MCP servers defined in `mcp-servers.json`.
   - `/exit` – quit the program; pressing `Ctrl+D` on an empty prompt exits as well, while `Ctrl+C` now only cancels an in-progress response.
 
+## Quick Start
+1. Configure at least one model in `~/.humble-ai-cli/config.json` (the CLI stays idle until a model is defined). Set a single entry to `"active": true` and include the required provider fields such as `apiKey` (OpenAI) or `baseUrl` (Ollama). Enable automatic MCP tool execution up front with `"toolCallMode": "auto"` if you do not want to confirm each call.
+2. (Optional) Register MCP servers in `~/.humble-ai-cli/mcp-servers.json` under a top-level `mcpServers` object. Launch the CLI and use `/toggle-mcp` to enable or disable entries without editing the file, and `/mcp` to list the active servers and their functions.
+3. Run the CLI (`go run ./...` from the repo or the `humble-ai-cli` binary) and start chatting. Use `/set-model` to switch between configured models at runtime.
+4. To script a conversation, copy `WORKFLOW.sample.md`, update only the model in the `# CONFIGS` section (and MCP servers if needed), then execute `humble-ai-cli exec </path/to/workflow_file>`. The workflow file bundles config, MCP definitions, and prompts so you can run a repeatable session in one command.
+
 ## Prerequisites
 - Go 1.25.2 (or a Go toolchain that supports a compatible `go` version).  
   Verify with: `go version`
