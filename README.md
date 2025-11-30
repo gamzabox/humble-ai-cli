@@ -68,7 +68,7 @@ Set `toolCallMode` to `auto` to automatically run approved MCP tool calls withou
 
 ## Workflow Execution
 - Run `humble-ai-cli exec path/to/workflow.md` to execute a predefined conversation and exit after completion.
-- Format (see `WORKFLOW.test.md`): the `# CONFIGS` section may include `## Basic Config` (JSON matching `config.json`) and `## MCP Servers` (JSON with the `mcpServers` object from `mcp-servers.json`). If either subsection is missing, the CLI falls back to `$HOME/.humble-ai-cli/config.json` or `$HOME/.humble-ai-cli/mcp-servers.json` respectively.
+- Format (see `WORKFLOW.sample.md`): the `# CONFIGS` section may include `## Basic Config` (JSON matching `config.json`) and `## MCP Servers` (JSON with the `mcpServers` object from `mcp-servers.json`). If either subsection is missing, the CLI falls back to `$HOME/.humble-ai-cli/config.json` or `$HOME/.humble-ai-cli/mcp-servers.json` respectively.
 - When a Basic Config block is present, only that JSON is used—missing fields take program defaults rather than values from local config files. It must declare an active model; OpenAI entries require `apiKey` and Ollama entries require `baseUrl`. Missing required fields or malformed workflow files produce an error and abort execution.
 - Under `# WORKFLOWS`, each `##` heading marks a step; only the body text becomes the user prompt. Steps run in order within a single session so later prompts reuse earlier context.
 - Workflow output shows only the final answer for each prompt. Startup guides, waiting messages, and MCP call summaries are suppressed unless `toolCallMode` is `manual`, in which case MCP call details and the Y/N confirmation prompt still appear before execution.
