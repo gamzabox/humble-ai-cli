@@ -3,6 +3,7 @@ package app_test
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -251,5 +252,109 @@ func TestExecuteWorkflowFailsWhenBasicConfigMissingRequiredFields(t *testing.T) 
 	got := output.String()
 	if !strings.Contains(got, "workflow") || !strings.Contains(got, "model") {
 		t.Fatalf("expected workflow config error message, got:\n%s", got)
+	}
+}
+
+func TestExecuteWorkflowUsesUserRulesOverride(t *testing.T) {
+	home := t.TempDir()
+	rules := "## Workflow Rules\n- keep answers short."
+	wf := workflow.Definition{
+		BasicConfig: &config.Config{
+			Models: []config.Model{
+				{Name: "wf-model", Provider: "openai", APIKey: "sk-wf", Active: true},
+			},
+		},
+		UserRules: &rules,
+		Steps: []workflow.Step{
+			{Title: "hello", Prompt: "Hello"},
+		},
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{{Type: llm.ChunkToken, Content: "Hi"}},
+	}
+	factory := newStubFactory()
+	factory.Register("wf-model", provider)
+
+	var output bytes.Buffer
+	opts := app.Options{
+		Factory:        factory,
+		Output:         &output,
+		ErrorOutput:    &output,
+		Input:          strings.NewReader(""),
+		HomeDir:        home,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		Clock:          fixedClock(time.Now()),
+	}
+
+	if err := app.ExecuteWorkflow(context.Background(), opts, wf); err != nil {
+		t.Fatalf("ExecuteWorkflow() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected one request, got %d", len(requests))
+	}
+	prompt := requests[0].SystemPrompt
+	if !strings.Contains(prompt, "Workflow Rules") {
+		t.Fatalf("expected workflow user rules in system prompt, got:\n%s", prompt)
+	}
+}
+
+func TestExecuteWorkflowSkipsFileRulesWhenUserRulesEmpty(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	fileRules := "File based rules"
+	if err := os.WriteFile(filepath.Join(configDir, "user-rules.md"), []byte(fileRules), 0o644); err != nil {
+		t.Fatalf("failed to write user rules: %v", err)
+	}
+
+	empty := ""
+	wf := workflow.Definition{
+		BasicConfig: &config.Config{
+			Models: []config.Model{
+				{Name: "wf-model", Provider: "openai", APIKey: "sk-wf", Active: true},
+			},
+		},
+		UserRules: &empty,
+		Steps: []workflow.Step{
+			{Title: "hello", Prompt: "Hello"},
+		},
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{{Type: llm.ChunkToken, Content: "Hi"}},
+	}
+	factory := newStubFactory()
+	factory.Register("wf-model", provider)
+
+	var output bytes.Buffer
+	opts := app.Options{
+		Factory:        factory,
+		Output:         &output,
+		ErrorOutput:    &output,
+		Input:          strings.NewReader(""),
+		HomeDir:        home,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		Clock:          fixedClock(time.Now()),
+	}
+
+	if err := app.ExecuteWorkflow(context.Background(), opts, wf); err != nil {
+		t.Fatalf("ExecuteWorkflow() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("expected one request, got %d", len(requests))
+	}
+	prompt := requests[0].SystemPrompt
+	if strings.Contains(prompt, fileRules) {
+		t.Fatalf("expected file rules to be skipped when workflow user rules are empty, got:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Workflow Rules") {
+		t.Fatalf("expected no workflow rule content in prompt, got:\n%s", prompt)
 	}
 }

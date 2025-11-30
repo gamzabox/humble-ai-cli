@@ -21,6 +21,7 @@ type Step struct {
 type Definition struct {
 	BasicConfig *config.Config
 	MCPServers  map[string]map[string]any
+	UserRules   *string
 	Steps       []Step
 }
 
@@ -77,6 +78,10 @@ func parseContent(content string) (Definition, error) {
 		return Definition{}, err
 	}
 	def.Steps = steps
+
+	if rules, ok := extractUserRules(content); ok {
+		def.UserRules = &rules
+	}
 
 	return def, nil
 }
@@ -136,4 +141,29 @@ func parseWorkflowSteps(content string) ([]Step, error) {
 		return nil, errors.New("workflow file must define at least one workflow step")
 	}
 	return steps, nil
+}
+
+func extractUserRules(content string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	var (
+		started bool
+		body    []string
+	)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !started {
+			if strings.EqualFold(trimmed, "# USER RULES") {
+				started = true
+			}
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "# ") {
+			break
+		}
+		body = append(body, line)
+	}
+	if !started {
+		return "", false
+	}
+	return strings.TrimSpace(strings.Join(body, "\n")), true
 }

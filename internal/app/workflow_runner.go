@@ -42,6 +42,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, def workflow.Definition)
 		}
 		opts.MCP = manager
 	}
+	if def.UserRules != nil {
+		opts.UserRules = def.UserRules
+	}
 
 	opts.HomeDir = home
 

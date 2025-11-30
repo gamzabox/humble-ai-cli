@@ -72,6 +72,7 @@ type Options struct {
 	MCP            MCPExecutor
 	Version        string
 	BuildDate      string
+	UserRules      *string
 }
 
 // App coordinates CLI behaviour.
@@ -113,6 +114,8 @@ type App struct {
 
 	signalCh   chan os.Signal
 	stopSignal func()
+
+	userRulesOverride *string
 }
 
 type appMode int
@@ -257,6 +260,7 @@ func New(opts Options) (*App, error) {
 		mcpFunctions:      make(map[string][]MCPFunction),
 		cfg:               cfg,
 		mode:              modeInput,
+		userRulesOverride: opts.UserRules,
 	}
 
 	app.lineReader = createLineReader(opts.Input, app.output, func() {
@@ -311,16 +315,23 @@ func ensureUserRules(home string) (string, error) {
 func (a *App) initializeSystemPrompt() error {
 	prompt := buildDefaultSystemPrompt()
 
-	rules, err := ensureUserRules(a.homeDir)
-	if err != nil {
-		return err
+	var rules string
+	if a.userRulesOverride != nil {
+		rules = strings.TrimSpace(*a.userRulesOverride)
+	} else {
+		var err error
+		rules, err = ensureUserRules(a.homeDir)
+		if err != nil {
+			return err
+		}
+		rules = strings.TrimSpace(rules)
 	}
 
-	if trimmedRules := strings.TrimSpace(rules); trimmedRules != "" {
+	if rules != "" {
 		if strings.TrimSpace(prompt) != "" {
-			prompt = strings.TrimRight(prompt, "\n") + "\n\n" + trimmedRules
+			prompt = strings.TrimRight(prompt, "\n") + "\n\n" + rules
 		} else {
-			prompt = trimmedRules
+			prompt = rules
 		}
 	}
 

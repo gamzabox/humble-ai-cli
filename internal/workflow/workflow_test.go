@@ -91,6 +91,26 @@ func TestParseFileExtractsConfigsAndSteps(t *testing.T) {
 	}
 }
 
+func TestParseFileExtractsUserRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "WF.md")
+	content := "# USER RULES\nKeep it short.\n# WORKFLOWS\n## step\nDo it."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write workflow file: %v", err)
+	}
+
+	def, err := workflow.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+	if def.UserRules == nil {
+		t.Fatalf("expected user rules to be parsed")
+	}
+	if *def.UserRules != "Keep it short." {
+		t.Fatalf("unexpected user rules content: %q", *def.UserRules)
+	}
+}
+
 func TestParseFileErrorsWhenWorkflowsMissing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "WF.md")
@@ -126,6 +146,9 @@ func TestParseFileReturnsNilConfigsWhenAbsent(t *testing.T) {
 	if len(def.Steps) != 1 || def.Steps[0].Prompt != "Do something great." {
 		t.Fatalf("unexpected steps parsed: %+v", def.Steps)
 	}
+	if def.UserRules != nil {
+		t.Fatalf("expected user rules to be nil when section is absent")
+	}
 }
 
 func TestParseFileTrimsWorkflowContent(t *testing.T) {
@@ -150,5 +173,25 @@ func TestParseFileTrimsWorkflowContent(t *testing.T) {
 	}
 	if def.BasicConfig != nil || def.MCPServers != nil {
 		t.Fatalf("expected configs to remain nil")
+	}
+}
+
+func TestParseFileHandlesEmptyUserRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "WF.md")
+	content := "# USER RULES\n\n   \n# WORKFLOWS\n## step\nDo it."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write workflow file: %v", err)
+	}
+
+	def, err := workflow.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+	if def.UserRules == nil {
+		t.Fatalf("expected user rules pointer to exist even when empty")
+	}
+	if *def.UserRules != "" {
+		t.Fatalf("expected empty user rules content, got %q", *def.UserRules)
 	}
 }

@@ -42,6 +42,9 @@
 }
 ```
 
+# USER RULES
+**You must respond in the system locale language.**
+
 # WORKFLOWS
 ## Summary of Methods for Retrieving YouTube Transcripts in TypeScript
 Find a module in TypeScript that can extract YouTube transcripts, and summarize its features and usage.
