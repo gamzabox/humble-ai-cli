@@ -720,6 +720,15 @@ func (a *App) handleUserMessage(ctx context.Context, content string) error {
 		}
 	}
 
+	infoPrompt := buildSystemInformationPrompt(collectSystemInformation(a.clock.Now()))
+	if strings.TrimSpace(infoPrompt) != "" {
+		if strings.TrimSpace(systemPrompt) != "" {
+			systemPrompt = strings.TrimRight(systemPrompt, "\n") + "\n\n" + infoPrompt
+		} else {
+			systemPrompt = infoPrompt
+		}
+	}
+
 	var requestOptions map[string]any
 	if strings.EqualFold(activeModel.Provider, "ollama") {
 		numCtx := cfg.OllamaNumCtx

@@ -342,3 +342,9 @@
 - [x] REQUIREMENTS.md 를 검토하고 thinking 스트림의 공백 유지 요구사항을 테스트로 정의한다.
 - [x] reasoning 파서가 문자열 공백을 제거하지 않도록 구현을 수정한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# System Information System Prompt 추가
+- [x] REQUIREMENTS.md 에 system information 섹션 요구사항을 반영한다.
+- [x] system prompt에 System Information 블록이 포함되는지 검증하는 테스트를 추가하거나 수정한다.
+- [x] System Information 블록 생성 및 병합 로직을 구현한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.

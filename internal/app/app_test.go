@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1796,6 +1797,8 @@ func TestAppInitializesSystemPromptFromCodeAndCreatesUserRulesFile(t *testing.T)
 	configDir := filepath.Join(home, ".humble-ai-cli")
 	systemPromptPath := filepath.Join(configDir, "system_prompt.txt")
 
+	t.Setenv("LANG", "ko_KR.UTF-8")
+
 	store := &stubStore{
 		cfg: config.Config{
 			Models: []config.Model{
@@ -1894,6 +1897,27 @@ func TestAppInitializesSystemPromptFromCodeAndCreatesUserRulesFile(t *testing.T)
 	if !strings.Contains(prompt, "Ask minimal questions required to make the next legitimate function call.") {
 		t.Fatalf("expected default prompt to include targeted question reminder, got:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "# System Information") {
+		t.Fatalf("expected system information heading in prompt, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- OS: ") {
+		t.Fatalf("expected OS entry in system information, got:\n%s", prompt)
+	}
+	if !regexp.MustCompile(`- OS: .+`).MatchString(prompt) {
+		t.Fatalf("expected OS entry to include a value, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Architecture: "+runtime.GOARCH) {
+		t.Fatalf("expected architecture entry with GOARCH, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Locale: ko_KR.UTF-8") {
+		t.Fatalf("expected locale entry to reflect LANG, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Timezone: UTC") {
+		t.Fatalf("expected timezone entry derived from clock, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Datetime: 2025-10-16T16:20:30Z") {
+		t.Fatalf("expected datetime entry to reflect clock time, got:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "# Connected Tools") {
 		t.Fatalf("did not expect connected tools section in openai prompt, got:\n%s", prompt)
 	}
@@ -1924,6 +1948,8 @@ func TestAppAppendsUserRulesToSystemPrompt(t *testing.T) {
 			},
 		},
 	}
+
+	t.Setenv("LANG", "en_US.UTF-8")
 
 	provider := &recordingProvider{
 		chunks: []llm.StreamChunk{
@@ -1982,11 +2008,104 @@ func TestAppAppendsUserRulesToSystemPrompt(t *testing.T) {
 	if idxRules == -1 {
 		t.Fatalf("expected system prompt to contain user rules, got:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "# System Information") {
+		t.Fatalf("expected system information section to be present, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Datetime: 2025-10-16T16:20:30Z") {
+		t.Fatalf("expected datetime entry to match clock, got:\n%s", prompt)
+	}
+	if idxRules > strings.Index(prompt, "# System Information") {
+		t.Fatalf("expected user rules to appear before system information section, got:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("did not expect schema guidance in final prompt, got:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "NO FUNCTION CONNECTED") {
 		t.Fatalf("did not expect fallback notice when tools exist, got:\n%s", prompt)
+	}
+}
+
+func TestAppAddsSystemInformationAfterToolListing(t *testing.T) {
+	home := t.TempDir()
+
+	store := &stubStore{
+		cfg: config.Config{
+			Models: []config.Model{
+				{Name: "ollama-model", Provider: "ollama", BaseURL: "http://localhost:11434", Active: true},
+			},
+		},
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{
+			{Type: llm.ChunkThinking},
+			{Type: llm.ChunkToken, Content: "Hello"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("ollama-model", provider)
+
+	mcpExecutor := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "context7", Description: "Context server"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"context7": {
+				{Name: "resolve", Description: "Resolve identifiers."},
+			},
+		},
+	}
+
+	t.Setenv("LANG", "ja_JP.UTF-8")
+
+	input := strings.NewReader("Hello\n/exit\n")
+	var output bytes.Buffer
+
+	opts := app.Options{
+		Store:          store,
+		Factory:        factory,
+		Input:          input,
+		Output:         &output,
+		ErrorOutput:    &output,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		HomeDir:        home,
+		MCP:            mcpExecutor,
+		Clock:          fixedClock(time.Date(2025, 10, 16, 16, 20, 30, 0, time.UTC)),
+	}
+
+	instance, err := app.New(opts)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := instance.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	requests := provider.Requests()
+	if len(requests) == 0 {
+		t.Fatalf("expected provider to receive request")
+	}
+	prompt := requests[0].SystemPrompt
+	toolsIdx := strings.Index(prompt, "# Connected Tools")
+	if toolsIdx == -1 {
+		t.Fatalf("expected connected tools section in system prompt, got:\n%s", prompt)
+	}
+	infoIdx := strings.Index(prompt, "# System Information")
+	if infoIdx == -1 {
+		t.Fatalf("expected system information section in system prompt, got:\n%s", prompt)
+	}
+	if infoIdx < toolsIdx {
+		t.Fatalf("expected system information to appear after tool listing, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Locale: ja_JP.UTF-8") {
+		t.Fatalf("expected locale to reflect LANG, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Datetime: 2025-10-16T16:20:30Z") {
+		t.Fatalf("expected datetime to reflect clock, got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "- Architecture: "+runtime.GOARCH) {
+		t.Fatalf("expected architecture entry, got:\n%s", prompt)
 	}
 }
 

@@ -144,6 +144,17 @@ Ask minimal questions required to make the next legitimate function call.
 ```
 - Ollama 모델 요청에는 system prompt 하단에 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 이어 붙여 전달하고, 연결된 MCP tool 이 없으면 `NO FUNCTION CONNECTED` 문구를 포함한다.
 - OpenAI 모델 요청에는 `# Connected Tools` 와 `# Function Call Schema and Example` 안내를 모두 생략한다. 단, 연결된 MCP tool 이 없으면 `NO FUNCTION CONNECTED` 문구만 별도로 출력해 도구 부재를 알린다.
+- Connected tools 안내 하단에 현재 시스템 정보를 다음 포맷으로 추가한다.
+
+```
+# System Information
+- OS: <OS Name and version>
+- Architecture: <amd64, arm64, etc>
+- Locale: <locale>
+- Timezone: <Timezone>
+- Datetime: <ISO format datetime of now>
+```
+
 - Ollama 모델이 함수 호출 JSON 을 assistant 메시지에 포함(단독 또는 자연어와 혼합)하는 경우 해당 JSON 을 파싱해 MCP tool 을 호출해야 한다.
 - MCP tool 호출 결과를 context 에 기록할 때 `role` 필드는 항상 `"tool"` 로 설정한다.
 - MCP tool call 진행 중에는 assistant 의 tool call JSON 메시지와 tool 역할의 결과 메시지를 LLM 요청 context 에 포함하지만, 최종 답변이 완료되면 이러한 중간 메시지들은 대화 context 와 히스토리에 포함하지 않고 마지막 assistant 자연어 응답만 남긴다.

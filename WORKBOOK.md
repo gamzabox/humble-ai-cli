@@ -627,3 +627,17 @@ Humble AI CLI version 1.0.0
 - session history에 user content 만 존재하고, assistant content 가 없을경우 user content 만을 하나의 turn 으로 간주함
 
 **LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
+
+# System 정보를 System prompt 하단에 추가 할것
+- 다음의 포맷과 같이 Connected tools 하단에 현재 시스템 정보를 추가 할것.
+- 즉 이제 전체 System prompt 는 기본 system prompt + Connected tools + System information 으로 구성됨
+- 예제
+```markdown
+# System Information
+- OS: <OS Name and version>
+- Architecture: <amd64, arm64, etc>
+- Locale: <locale>
+- Timezone: <Timezone>
+- Datetime: <ISO format datetime of now>
+```
+**LLM_RULES.md 파일에 정의된 Coding rule 을 따를 것.**
