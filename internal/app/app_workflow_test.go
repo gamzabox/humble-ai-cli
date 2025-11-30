@@ -250,8 +250,8 @@ func TestExecuteWorkflowFailsWhenBasicConfigMissingRequiredFields(t *testing.T) 
 	}
 
 	got := output.String()
-	if !strings.Contains(got, "workflow") || !strings.Contains(got, "model") {
-		t.Fatalf("expected workflow config error message, got:\n%s", got)
+	if got != "" {
+		t.Fatalf("expected no duplicate error output, got:\n%s", got)
 	}
 }
 

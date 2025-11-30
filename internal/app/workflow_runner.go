@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,8 +36,7 @@ func ExecuteWorkflow(ctx context.Context, opts Options, def workflow.Definition)
 	if def.MCPServers != nil {
 		manager, err := mcpkg.NewManagerWithServers(home, def.MCPServers)
 		if err != nil {
-			printWorkflowError(opts.ErrorOutput, fmt.Errorf("MCP Servers: %w", err))
-			return err
+			return fmt.Errorf("MCP Servers: %w", err)
 		}
 		opts.MCP = manager
 	}
@@ -63,15 +61,12 @@ func ExecuteWorkflow(ctx context.Context, opts Options, def workflow.Definition)
 
 func (a *App) runWorkflow(ctx context.Context, steps []workflow.Step) error {
 	if len(steps) == 0 {
-		err := errors.New("workflow has no steps to run")
-		printWorkflowError(a.errOutput, err)
-		return err
+		return errors.New("workflow has no steps to run")
 	}
 
 	cfg := a.currentConfig()
 	if err := validateWorkflowConfig(cfg); err != nil {
-		printWorkflowError(a.errOutput, fmt.Errorf("configuration error: %w", err))
-		return err
+		return fmt.Errorf("configuration error: %w", err)
 	}
 
 	display := responseDisplay{
@@ -119,11 +114,4 @@ func (a *App) currentConfig() config.Config {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
 	return a.cfg
-}
-
-func printWorkflowError(output io.Writer, err error) {
-	if output == nil || err == nil {
-		return
-	}
-	_, _ = output.Write([]byte(fmt.Sprintf("> workflow error: %v\n", err)))
 }
