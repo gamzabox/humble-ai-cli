@@ -209,6 +209,77 @@ func TestExecuteWorkflowFallsBackToStoredConfigWhenWorkflowConfigMissing(t *test
 	}
 }
 
+func TestExecuteWorkflowSkipsHomeMCPServersWhenWorkflowDefinesEmptyBlock(t *testing.T) {
+	home := t.TempDir()
+	configDir := filepath.Join(home, ".humble-ai-cli")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "mcp-servers.json"), []byte("{not-valid"), 0o644); err != nil {
+		t.Fatalf("failed to write invalid mcp config: %v", err)
+	}
+
+	workflowPath := filepath.Join(home, "WF.md")
+	content := "# CONFIGS\n" +
+		"## Basic Config\n" +
+		"```json\n" +
+		"{\n" +
+		"  \"models\": [\n" +
+		"    {\n" +
+		"      \"name\": \"wf-model\",\n" +
+		"      \"provider\": \"openai\",\n" +
+		"      \"apiKey\": \"sk-wf\",\n" +
+		"      \"active\": true\n" +
+		"    }\n" +
+		"  ]\n" +
+		"}\n" +
+		"```\n\n" +
+		"## MCP Servers\n" +
+		"```json\n" +
+		"{\n" +
+		"  \"mcpServers\": {}\n" +
+		"}\n" +
+		"```\n\n" +
+		"# WORKFLOWS\n" +
+		"## hello\n" +
+		"Say hi."
+	if err := os.WriteFile(workflowPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write workflow file: %v", err)
+	}
+
+	def, err := workflow.ParseFile(workflowPath)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+	if def.MCPServers == nil {
+		t.Fatalf("expected workflow parser to include MCP servers map")
+	}
+
+	provider := &recordingProvider{
+		chunks: []llm.StreamChunk{{Type: llm.ChunkToken, Content: "No MCP servers"}},
+	}
+	factory := newStubFactory()
+	factory.Register("wf-model", provider)
+
+	var output bytes.Buffer
+	opts := app.Options{
+		Factory:        factory,
+		Output:         &output,
+		ErrorOutput:    &output,
+		Input:          strings.NewReader(""),
+		HomeDir:        home,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		Clock:          fixedClock(time.Now()),
+	}
+
+	if err := app.ExecuteWorkflow(context.Background(), opts, def); err != nil {
+		t.Fatalf("ExecuteWorkflow() error = %v", err)
+	}
+	if !strings.Contains(output.String(), "No MCP servers") {
+		t.Fatalf("expected workflow output, got:\n%s", output.String())
+	}
+}
+
 func TestExecuteWorkflowFailsWhenBasicConfigMissingRequiredFields(t *testing.T) {
 	home := t.TempDir()
 	wf := workflow.Definition{

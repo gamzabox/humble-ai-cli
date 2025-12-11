@@ -151,6 +151,41 @@ func TestParseFileReturnsNilConfigsWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestParseFileTreatsEmptyConfigBlocksAsOverrides(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "WF.md")
+	content := "# CONFIGS\n" +
+		"## Basic Config\n" +
+		"```json\n" +
+		"\n" +
+		"```\n\n" +
+		"## MCP Servers\n" +
+		"```json\n" +
+		"\n" +
+		"```\n\n" +
+		"# WORKFLOWS\n" +
+		"## step\n" +
+		"Run prompt."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write workflow file: %v", err)
+	}
+
+	def, err := workflow.ParseFile(path)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	if def.BasicConfig == nil {
+		t.Fatalf("expected BasicConfig pointer when block is present, got nil")
+	}
+	if def.MCPServers == nil {
+		t.Fatalf("expected MCPServers map when block is present, got nil")
+	}
+	if len(def.MCPServers) != 0 {
+		t.Fatalf("expected empty MCPServers map, got %d entries", len(def.MCPServers))
+	}
+}
+
 func TestParseFileTrimsWorkflowContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "WF.md")

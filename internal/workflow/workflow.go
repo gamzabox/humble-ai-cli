@@ -49,7 +49,9 @@ func parseContent(content string) (Definition, error) {
 
 	if matches := reBasicConfig.FindStringSubmatch(content); len(matches) > 1 {
 		body := strings.TrimSpace(matches[1])
-		if body != "" {
+		if body == "" {
+			def.BasicConfig = &config.Config{}
+		} else {
 			var cfg config.Config
 			if err := json.Unmarshal([]byte(body), &cfg); err != nil {
 				return Definition{}, fmt.Errorf("parse Basic Config: %w", err)
@@ -60,6 +62,7 @@ func parseContent(content string) (Definition, error) {
 
 	if matches := reMCPServers.FindStringSubmatch(content); len(matches) > 1 {
 		body := strings.TrimSpace(matches[1])
+		def.MCPServers = map[string]map[string]any{}
 		if body != "" {
 			var payload struct {
 				MCPServers map[string]map[string]any `json:"mcpServers"`
