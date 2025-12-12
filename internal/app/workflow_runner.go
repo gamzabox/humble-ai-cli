@@ -73,6 +73,7 @@ func (a *App) runWorkflow(ctx context.Context, steps []workflow.Step) error {
 		showWaiting:      false,
 		showThinking:     false,
 		showToolMessages: a.toolCallMode() == config.ToolCallModeManual,
+		streamTokens:     false,
 	}
 
 	for _, step := range steps {

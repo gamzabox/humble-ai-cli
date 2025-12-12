@@ -142,6 +142,7 @@ type responseDisplay struct {
 	showWaiting      bool
 	showThinking     bool
 	showToolMessages bool
+	streamTokens     bool
 }
 
 func defaultResponseDisplay() responseDisplay {
@@ -149,6 +150,7 @@ func defaultResponseDisplay() responseDisplay {
 		showWaiting:      true,
 		showThinking:     true,
 		showToolMessages: true,
+		streamTokens:     true,
 	}
 }
 
@@ -850,7 +852,9 @@ loop:
 			}
 		case llm.ChunkToken:
 			closeThinking()
-			fmt.Fprint(a.output, chunk.Content)
+			if display.streamTokens {
+				fmt.Fprint(a.output, chunk.Content)
+			}
 			assistant.WriteString(chunk.Content)
 		case llm.ChunkToolCall:
 			closeThinking()
@@ -896,7 +900,11 @@ loop:
 	}
 
 	if assistant.Len() > 0 {
-		fmt.Fprintln(a.output)
+		if display.streamTokens {
+			fmt.Fprintln(a.output)
+		} else {
+			fmt.Fprintln(a.output, assistant.String())
+		}
 	}
 
 	if errored {

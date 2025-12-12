@@ -225,6 +225,7 @@ func (p panicProvider) Stream(ctx context.Context, req llm.ChatRequest) (<-chan 
 type toolRequestProvider struct {
 	mu          sync.Mutex
 	requests    []llm.ChatRequest
+	before      []llm.StreamChunk
 	call        llm.ToolCall
 	after       []llm.StreamChunk
 	onResponded func(llm.ToolResult)
@@ -234,6 +235,7 @@ func (p *toolRequestProvider) Stream(ctx context.Context, req llm.ChatRequest) (
 	p.mu.Lock()
 	p.requests = append(p.requests, req)
 	call := p.call
+	before := append([]llm.StreamChunk(nil), p.before...)
 	after := append([]llm.StreamChunk(nil), p.after...)
 	onResponded := p.onResponded
 	p.mu.Unlock()
@@ -241,6 +243,10 @@ func (p *toolRequestProvider) Stream(ctx context.Context, req llm.ChatRequest) (
 	out := make(chan llm.StreamChunk)
 	go func() {
 		defer close(out)
+
+		for _, chunk := range before {
+			out <- chunk
+		}
 
 		resultCh := make(chan llm.ToolResult, 1)
 		previousResponder := call.Respond

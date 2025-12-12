@@ -167,6 +167,74 @@ func TestExecuteWorkflowManualModeShowsToolPrompt(t *testing.T) {
 	}
 }
 
+func TestExecuteWorkflowSuppressesToolJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	wf := workflow.Definition{
+		BasicConfig: &config.Config{
+			ToolCallMode: "auto",
+			Models: []config.Model{
+				{Name: "wf-model", Provider: "openai", APIKey: "sk-wf", Active: true},
+			},
+		},
+		Steps: []workflow.Step{
+			{Title: "json", Prompt: "Call something"},
+		},
+	}
+
+	provider := &toolRequestProvider{
+		before: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "```json\n{\"chooseFunction\":{\"functionName\":\"calc__add\"}}\n```"},
+			{Type: llm.ChunkToken, Content: "{\"functionCall\":{\"server\":\"calc\",\"name\":\"add\"}}"},
+		},
+		call: llm.ToolCall{
+			Server:    "calc",
+			Method:    "add",
+			Arguments: map[string]any{"a": float64(1), "b": float64(2)},
+		},
+		after: []llm.StreamChunk{
+			{Type: llm.ChunkToken, Content: "Sum is 3"},
+		},
+	}
+	factory := newStubFactory()
+	factory.Register("wf-model", provider)
+
+	mcpExec := &stubMCP{
+		servers: []app.MCPServer{
+			{Name: "calc", Description: "calculator"},
+		},
+		toolset: map[string][]app.MCPFunction{
+			"calc": {
+				{Name: "add", Description: "add numbers"},
+			},
+		},
+		response: llm.ToolResult{Content: "3"},
+	}
+
+	var output bytes.Buffer
+	opts := app.Options{
+		Factory:        factory,
+		Output:         &output,
+		ErrorOutput:    &output,
+		Input:          strings.NewReader(""),
+		HomeDir:        home,
+		HistoryRootDir: filepath.Join(home, ".humble-ai-cli", "sessions"),
+		MCP:            mcpExec,
+		Clock:          fixedClock(time.Now()),
+	}
+
+	if err := app.ExecuteWorkflow(context.Background(), opts, wf); err != nil {
+		t.Fatalf("ExecuteWorkflow() error = %v", err)
+	}
+
+	got := output.String()
+	if strings.Contains(got, "chooseFunction") || strings.Contains(got, "functionCall") {
+		t.Fatalf("expected workflow output to exclude tool JSON, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Sum is 3") {
+		t.Fatalf("expected final answer output, got:\n%s", got)
+	}
+}
+
 func TestExecuteWorkflowFallsBackToStoredConfigWhenWorkflowConfigMissing(t *testing.T) {
 	home := t.TempDir()
 	wf := workflow.Definition{
