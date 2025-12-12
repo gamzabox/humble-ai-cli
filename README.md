@@ -43,22 +43,22 @@ Add provider and model details to `~/.humble-ai-cli/config.json`, for example:
 {
   "models": [
     {
-      "name": "gpt-4o",
+      "name": "gpt-5",
       "provider": "openai",
       "apiKey": "sk-...",
       "active": true
     },
     {
-      "name": "llama2",
+      "name": "qwen3:30b-a3b-instruct-2507-q4_K_M",
       "provider": "ollama",
       "baseUrl": "http://localhost:11434"
     }
   ],
   "ollamaContextChunkSize": 0,
   "contextRetentionTurns": 5,
-  "ollamaNumCtx": 30000,
+  "ollamaNumCtx": 50000,
   "logLevel": "info",
-  "toolCallMode": "manual"
+  "toolCallMode": "auto"
 }
 ```
 
