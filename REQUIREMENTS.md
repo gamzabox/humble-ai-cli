@@ -30,7 +30,7 @@
 {
   "functionCall": {
     "server": "server_name",
-    "name": "tool name",
+    "name": "server_name__tool name",
     "arguments": {
       "arg1 name": "argument1 value",
       "arg2 name": "argument2 value",
@@ -43,7 +43,7 @@
 {
   "functionCall": {
     "server": "good-server",
-    "name": "good-tool",
+    "name": "good-server__good-tool",
     "arguments": {
       "goodArg": "nice"
     },

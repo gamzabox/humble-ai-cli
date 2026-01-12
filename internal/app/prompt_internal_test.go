@@ -39,11 +39,17 @@ func TestToolContextPromptIncludesFunctionsWhenListingEnabled(t *testing.T) {
 	if !strings.Contains(prompt, "# Function Call Schema and Example") {
 		t.Fatalf("expected function call schema block, got %q", prompt)
 	}
-	if !strings.Contains(prompt, `"server": "server name"`) {
+	if !strings.Contains(prompt, `"server": "server_name"`) {
 		t.Fatalf("expected schema block to include placeholder server entry, got %q", prompt)
 	}
 	if !strings.Contains(prompt, `"server": "good-server"`) {
 		t.Fatalf("expected schema example to include good-server entry, got %q", prompt)
+	}
+	if !strings.Contains(prompt, `"name": "server_name__tool name"`) {
+		t.Fatalf("expected schema block to include placeholder namespaced tool entry, got %q", prompt)
+	}
+	if !strings.Contains(prompt, `"name": "good-server__good-tool"`) {
+		t.Fatalf("expected schema example to include namespaced tool entry, got %q", prompt)
 	}
 }
 

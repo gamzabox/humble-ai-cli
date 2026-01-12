@@ -1254,7 +1254,7 @@ func toolContextPrompt(defs []llm.ToolDefinition, includeToolListing bool) strin
 	return "NO FUNCTION CONNECTED"
 }
 
-const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server name\",\n    \"name\": \"function name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+const functionCallSchemaPrompt = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"server_name__tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-server__good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
 
 func (a *App) functionDescription(server, method string) string {
 	a.mcpMu.RLock()

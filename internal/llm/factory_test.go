@@ -53,7 +53,7 @@ func testNoToolPrompt() string {
 	return "# Connected Tools\n\nNO FUNCTION CONNECTED\n" + testFunctionCallSchemaBlock
 }
 
-const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
+const testFunctionCallSchemaBlock = "\n# Function Call Schema and Example\n## Schema\n{\n  \"functionCall\": {\n    \"server\": \"server_name\",\n    \"name\": \"server_name__tool name\",\n    \"arguments\": {\n      \"arg1 name\": \"argument1 value\",\n      \"arg2 name\": \"argument2 value\",\n    },\n    \"reason\": \"reason why calling this tool\"\n  }\n}\n\n## Example\n{\n  \"functionCall\": {\n    \"server\": \"good-server\",\n    \"name\": \"good-server__good-tool\",\n    \"arguments\": {\n      \"goodArg\": \"nice\"\n    },\n    \"reason\": \"why this tool call is needed\"\n  }\n}\n"
 
 func TestBuildOllamaRequestEmbedsToolPromptInSystem(t *testing.T) {
 	t.Parallel()
@@ -489,8 +489,8 @@ finished:
 	if !strings.Contains(string(firstBody), "server_name") {
 		t.Fatalf("first request missing schema server placeholder: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "tool name") {
-		t.Fatalf("first request missing schema tool name placeholder: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "server_name__tool name") {
+		t.Fatalf("first request missing schema namespaced tool name placeholder: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "arg1 name") {
 		t.Fatalf("first request missing schema argument placeholder: %s", string(firstBody))
@@ -504,8 +504,8 @@ finished:
 	if !strings.Contains(string(firstBody), "good-server") {
 		t.Fatalf("first request missing example server entry: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "good-tool") {
-		t.Fatalf("first request missing example tool entry: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "good-server__good-tool") {
+		t.Fatalf("first request missing example namespaced tool entry: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "goodArg") {
 		t.Fatalf("first request missing example argument guidance: %s", string(firstBody))
@@ -741,8 +741,8 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), "server_name") {
 		t.Fatalf("function call schema missing server placeholder in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "tool name") {
-		t.Fatalf("function call schema missing tool placeholder in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "server_name__tool name") {
+		t.Fatalf("function call schema missing namespaced tool placeholder in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "arg1 name") {
 		t.Fatalf("function call schema missing first argument placeholder in first request: %s", string(firstBody))
@@ -756,8 +756,8 @@ func TestOllamaProviderHandlesManualFunctionCallJSON(t *testing.T) {
 	if !strings.Contains(string(firstBody), "good-server") {
 		t.Fatalf("function call example missing server entry in first request: %s", string(firstBody))
 	}
-	if !strings.Contains(string(firstBody), "good-tool") {
-		t.Fatalf("function call example missing tool entry in first request: %s", string(firstBody))
+	if !strings.Contains(string(firstBody), "good-server__good-tool") {
+		t.Fatalf("function call example missing namespaced tool entry in first request: %s", string(firstBody))
 	}
 	if !strings.Contains(string(firstBody), "goodArg") {
 		t.Fatalf("function call example missing argument entry in first request: %s", string(firstBody))

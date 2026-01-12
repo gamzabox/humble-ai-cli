@@ -371,3 +371,8 @@
 - [x] chooseFunction/functionCall JSON 노출을 재현하는 테스트를 추가한다.
 - [x] 워크플로우 모드에서 토큰을 버퍼링해 자연어 응답만 출력하도록 구현한다.
 - [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
+
+# Function Call Schema 네임스페이스 갱신
+- [x] Function Call Schema 예시를 검증하는 테스트를 먼저 수정한다.
+- [x] system prompt의 Function Call Schema 예시를 업데이트한다.
+- [x] `go test ./...` 를 실행해 전체 테스트를 통과시킨다.
